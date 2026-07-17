@@ -1,237 +1,190 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Icon } from './components/Icon'
 import { RushdCharacter } from './components/RushdCharacter'
-import { formatSar, getSpentPercentage, monthlyAllocations } from './lib/finance'
+import { formatSar, getSpentPercentage } from './lib/finance'
 
-type Tab = 'home' | 'month' | 'goals' | 'insights'
+type Tab = 'home' | 'wishes' | 'market'
 
-type Transaction = {
+type Wish = {
+  id: number
   title: string
-  category: string
-  amount: number
   icon: string
+  saved: number
+  target: number
+  deadline: string
 }
 
-const transactions: Transaction[] = [
-  { title: 'سوبر ماركت', category: 'مشتريات المنزل', amount: -87.5, icon: '🛒' },
-  { title: 'راتب يوليو', category: 'دخل شهري', amount: 25680, icon: '↗' },
-  { title: 'أماني رُشد', category: 'تحويل تلقائي', amount: -500, icon: '♡' },
+type MarketItem = {
+  id: number
+  title: string
+  quantity: string
+  owner: 'حمزة' | 'أسماء'
+  checked: boolean
+}
+
+const initialWishes: Wish[] = [
+  { id: 1, title: 'رحلة العائلة', icon: '✈️', saved: 12000, target: 20000, deadline: 'باقي 3 أشهر' },
+  { id: 2, title: 'تأثيث البيت', icon: '🛋️', saved: 18500, target: 35000, deadline: 'باقي 7 أشهر' },
+  { id: 3, title: 'صندوق الطوارئ', icon: '🛡️', saved: 15000, target: 20000, deadline: 'قريب جدًا' },
 ]
 
-const tabCopy: Record<Tab, { title: string; message: string }> = {
-  home: { title: 'الرئيسية', message: 'وضعك مطمئن، وخطتك ماشية بشكل جميل.' },
-  month: { title: 'حساب الشهر', message: 'وزّعنا الراتب بدون ما ننسى مستقبلك.' },
-  goals: { title: 'الأهداف', message: 'أقرب هدف لك صار على بُعد خطوات.' },
-  insights: { title: 'التحليلات', message: 'وجدت نمطًا بسيطًا يوفّر عليك هذا الشهر.' },
+const initialMarketItems: MarketItem[] = [
+  { id: 1, title: 'حليب', quantity: '2 عبوة', owner: 'أسماء', checked: false },
+  { id: 2, title: 'بيض', quantity: 'طبق كبير', owner: 'حمزة', checked: true },
+  { id: 3, title: 'مناديل مطبخ', quantity: '1 كرتون', owner: 'أسماء', checked: false },
+  { id: 4, title: 'قهوة', quantity: '500 جم', owner: 'حمزة', checked: false },
+]
+
+const tabMessages: Record<Tab, string> = {
+  home: 'وضعك مطمئن. خلّنا نكمل الشهر بدون قرارات عشوائية.',
+  wishes: 'كل أمنية هنا مرتبطة بخطتك، مو مجرد قائمة أحلام.',
+  market: 'القائمة مشتركة، لذلك ما عاد فيه: كنت أحسبك اشتريتها.',
 }
 
-function ProgressRing({ value }: { value: number }) {
-  const radius = 43
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (value / 100) * circumference
-
+function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="progress-ring" aria-label={`مؤشر رشد ${value}%`}>
-      <svg viewBox="0 0 108 108">
-        <circle className="ring-track" cx="54" cy="54" r={radius} />
-        <motion.circle
-          className="ring-value"
-          cx="54"
-          cy="54"
-          r={radius}
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 1.1, ease: 'easeOut' }}
-        />
-      </svg>
-      <div className="ring-label">
-        <strong>{value}%</strong>
-        <span>مؤشر رُشد</span>
-      </div>
+    <div className="goal-track" aria-label={`التقدم ${value}%`}>
+      <motion.i initial={{ width: 0 }} animate={{ width: `${value}%` }} transition={{ duration: 0.7 }} />
     </div>
   )
 }
 
-function HomeView({ onCelebrate }: { onCelebrate: () => void }) {
+function HomeView({ wishes, pendingMarket }: { wishes: Wish[]; pendingMarket: number }) {
+  const totalSaved = wishes.reduce((sum, wish) => sum + wish.saved, 0)
+  const totalTargets = wishes.reduce((sum, wish) => sum + wish.target, 0)
+  const wishProgress = getSpentPercentage(totalSaved, totalTargets)
+
   return (
-    <motion.main className="screen-content" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="hero-card">
+    <motion.main className="screen-content" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+      <section className="hero-card sprint-hero">
         <div>
-          <span className="eyebrow">مساء الخير يا حمزة</span>
-          <h1>أنت على المسار الصحيح</h1>
-          <p>استمر. مستقبلك المالي يُبنى بهدوء.</p>
+          <span className="eyebrow">مؤشر هذا الشهر</span>
+          <h1>خطتك ماشية بهدوء، وهذا المطلوب.</h1>
+          <p>الادخار مستمر، المصروف تحت السيطرة، وأقرب أمنية وصلت {wishProgress}%.</p>
         </div>
-        <ProgressRing value={72} />
-        <div className="living-line" aria-hidden="true"><span/><span/><span/><span/><span/><span/></div>
+        <motion.div className="pulse-orb" animate={{ scale: [1, 1.08, 1], rotate: [0, 4, 0] }} transition={{ duration: 4, repeat: Infinity }}>
+          <strong>{wishProgress}%</strong>
+          <span>تقدم الأماني</span>
+        </motion.div>
       </section>
 
       <section className="metrics-grid">
         <article className="metric-card accent-card">
-          <span>إجمالي الرصيد</span>
-          <strong>{formatSar(25680)}</strong>
-          <small>SAR · أعلى 12% من الشهر الماضي</small>
+          <span>إجمالي الادخار للأماني</span>
+          <strong>{formatSar(totalSaved)}</strong>
+          <small>ريال موزعة على {wishes.length} أهداف</small>
         </article>
         <article className="metric-card">
-          <span>المتبقي للمصروف</span>
-          <strong>{formatSar(7140)}</strong>
-          <div className="mini-progress"><i style={{ width: '72%' }} /></div>
+          <span>قائمة البيت</span>
+          <strong>{pendingMarket}</strong>
+          <small>عناصر بانتظار الشراء</small>
         </article>
       </section>
 
       <section className="section-block">
-        <div className="section-title">
-          <div><span>أقرب هدف</span><h2>رحلة العائلة</h2></div>
-          <button type="button" className="text-button">كل الأهداف</button>
-        </div>
-        <article className="goal-card">
-          <div className="goal-art">✈</div>
-          <div className="goal-copy">
-            <div className="goal-meta"><strong>12,000</strong><span>من 20,000 ريال</span></div>
-            <div className="goal-track"><motion.i initial={{ width: 0 }} animate={{ width: '60%' }} transition={{ duration: 0.9 }} /></div>
-            <small>باقي 3 أشهر حسب خطتك الحالية</small>
-          </div>
-          <button type="button" className="celebrate-button" onClick={onCelebrate} aria-label="شجّعني"><Icon name="spark" size={18}/></button>
-        </article>
+        <div className="section-title"><div><span>الأقرب الآن</span><h2>{wishes[2].title}</h2></div><b>{Math.round((wishes[2].saved / wishes[2].target) * 100)}%</b></div>
+        <div className="goal-focus-row"><span className="goal-art">{wishes[2].icon}</span><div><strong>{formatSar(wishes[2].saved)} من {formatSar(wishes[2].target)} ريال</strong><ProgressBar value={75}/><small>{wishes[2].deadline}</small></div></div>
       </section>
 
-      <section className="section-block">
-        <div className="section-title"><div><span>اليوم</span><h2>آخر الحركات</h2></div><button type="button" className="text-button">عرض الكل</button></div>
-        <div className="transaction-list">
-          {transactions.map((item, index) => (
-            <motion.article className="transaction-row" key={item.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 * index }}>
-              <span className="transaction-icon">{item.icon}</span>
-              <div><strong>{item.title}</strong><small>{item.category}</small></div>
-              <b className={item.amount > 0 ? 'positive' : ''}>{item.amount > 0 ? '+' : ''}{formatSar(item.amount)}</b>
-            </motion.article>
-          ))}
-        </div>
+      <section className="living-summary">
+        <motion.span animate={{ x: [0, 8, 0] }} transition={{ duration: 2.8, repeat: Infinity }}>✦</motion.span>
+        <div><strong>اقتراح رُشد</strong><p>حوّل 350 ريال إضافية لصندوق الطوارئ، وبتكمل الهدف قبل نهاية الشهر القادم.</p></div>
       </section>
     </motion.main>
   )
 }
 
-function MonthView() {
+function WishesView({ wishes, onAdd }: { wishes: Wish[]; onAdd: () => void }) {
   return (
-    <motion.main className="screen-content" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="month-summary">
-        <span>راتب يوليو</span><strong>{formatSar(25680)} <small>SAR</small></strong>
-        <div className="month-stats"><div><b>18,540</b><span>المصروف</span></div><div><b>7,140</b><span>المتبقي</span></div><div><b>28%</b><span>ادخار</span></div></div>
-      </section>
-      <section className="section-block">
-        <div className="section-title"><div><span>خطة ذكية</span><h2>توزيع الشهر</h2></div><span className="status-pill">متوازن</span></div>
-        <div className="allocation-list">
-          {monthlyAllocations.map((item, index) => {
-            const percent = Math.round(item.amount / 130)
-            return (
-              <article className="allocation-row" key={item.label}>
-                <div className={`allocation-dot ${item.tone}`} />
-                <div className="allocation-copy"><div><strong>{item.label}</strong><b>{formatSar(item.amount)}</b></div><div className="allocation-track"><motion.i className={item.tone} initial={{ width: 0 }} animate={{ width: `${Math.min(percent, 100)}%` }} transition={{ delay: index * 0.12, duration: 0.75 }} /></div></div>
-              </article>
-            )
-          })}
-        </div>
-        <button type="button" className="primary-button">تعديل التوزيع</button>
-      </section>
-      <section className="rushd-tip"><Icon name="spark"/><div><strong>ملاحظة من رُشد</strong><p>توزيعك الحالي يحافظ على الأمان، وفي نفس الوقت يترك مساحة للحياة.</p></div></section>
-    </motion.main>
-  )
-}
-
-function GoalsView() {
-  const goals = [
-    { title: 'رحلة العائلة', amount: '12,000 / 20,000', value: 60, icon: '✈️' },
-    { title: 'تأثيث البيت', amount: '18,500 / 35,000', value: 53, icon: '🛋️' },
-    { title: 'صندوق الطوارئ', amount: '15,000 / 20,000', value: 75, icon: '🛡️' },
-  ]
-  return (
-    <motion.main className="screen-content" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="goal-intro"><span>أهداف واقعية</span><h1>كل خطوة صغيرة تبني مستقبلًا أوضح.</h1></section>
+    <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
+      <section className="goal-intro wishes-intro"><span>أماني رُشد</span><h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1><p>كل هدف له مبلغ، تقدم، وموعد تقريبي بدل ما يظل مجرد فكرة.</p></section>
       <div className="goals-list">
-        {goals.map((goal, index) => (
-          <motion.article className="full-goal-card" key={goal.title} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .12 }}>
-            <span className="goal-emoji">{goal.icon}</span>
-            <div><h2>{goal.title}</h2><p>{goal.amount} ريال</p><div className="goal-track"><motion.i initial={{ width: 0 }} animate={{ width: `${goal.value}%` }} /></div><small>{goal.value}% مكتمل</small></div>
-          </motion.article>
-        ))}
+        {wishes.map((wish, index) => {
+          const value = getSpentPercentage(wish.saved, wish.target)
+          return (
+            <motion.article className="full-goal-card wish-card" key={wish.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}>
+              <span className="goal-emoji">{wish.icon}</span>
+              <div><div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div><p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال</p><ProgressBar value={value}/><small>{wish.deadline}</small></div>
+            </motion.article>
+          )
+        })}
       </div>
-      <button type="button" className="primary-button"><Icon name="plus" size={18}/> هدف جديد</button>
+      <button type="button" className="primary-button" onClick={onAdd}>＋ إضافة أمنية جديدة</button>
     </motion.main>
   )
 }
 
-function InsightsView() {
-  const spent = getSpentPercentage(7140, 10000)
+function MarketView({ items, onToggle, onAdd }: { items: MarketItem[]; onToggle: (id: number) => void; onAdd: () => void }) {
+  const checked = items.filter((item) => item.checked).length
+  const progress = getSpentPercentage(checked, items.length)
+
   return (
-    <motion.main className="screen-content" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="insight-hero"><Icon name="spark" size={28}/><span>اكتشاف هذا الأسبوع</span><h1>صرف المطاعم أقل بـ 18% من الشهر الماضي.</h1><p>هذا وفّر لك تقريبًا 280 ريال بدون ما تحس.</p></section>
-      <section className="section-block">
-        <div className="section-title"><div><span>ميزانية المنزل</span><h2>السوبر ماركت</h2></div><b>{spent}%</b></div>
-        <div className="large-progress"><motion.i initial={{ width: 0 }} animate={{ width: `${spent}%` }} /></div>
-        <div className="spend-scale"><span>مستخدم 714 ريال</span><span>من 1,000 ريال</span></div>
+    <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
+      <section className="market-hero">
+        <span>السوبرماركت المشترك</span><h1>{items.length - checked} عناصر متبقية</h1><p>القائمة متزامنة بينك وبين أسماء، وكل شخص يعرف مين أضاف كل عنصر.</p><ProgressBar value={progress}/>
       </section>
-      <section className="insight-list">
-        <article><span>أفضل قرار</span><strong>التحويل التلقائي لأماني رُشد</strong><p>ثبّت تقدمك حتى في الأسابيع المزدحمة.</p></article>
-        <article><span>فرصة بسيطة</span><strong>راجع اشتراكًا لم تستخدمه</strong><p>قد توفر 49 ريال شهريًا.</p></article>
+      <section className="section-block market-list">
+        {items.map((item, index) => (
+          <motion.button type="button" className={`market-row ${item.checked ? 'is-checked' : ''}`} key={item.id} onClick={() => onToggle(item.id)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.07 }}>
+            <span className="check-circle">{item.checked ? '✓' : ''}</span>
+            <span className="market-copy"><strong>{item.title}</strong><small>{item.quantity} · أضافها {item.owner}</small></span>
+          </motion.button>
+        ))}
+        <button type="button" className="secondary-button" onClick={onAdd}>＋ إضافة عنصر</button>
       </section>
+      <section className="shared-status"><span className="live-dot"/><div><strong>المزامنة اللحظية جاهزة</strong><p>تعمل محليًا الآن، وتنتظر فقط مفاتيح Supabase للربط الحقيقي بين الأجهزة.</p></div></section>
     </motion.main>
   )
 }
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
-  const [celebrating, setCelebrating] = useState(false)
-  const [characterMessage, setCharacterMessage] = useState(tabCopy.home.message)
-  const [interactionCount, setInteractionCount] = useState(0)
+  const [wishes, setWishes] = useState(initialWishes)
+  const [items, setItems] = useState(initialMarketItems)
+  const [message, setMessage] = useState(tabMessages.home)
+  const [counter, setCounter] = useState(0)
 
-  const mood = useMemo(() => celebrating ? 'celebrate' : tab === 'insights' ? 'thinking' : tab === 'goals' ? 'happy' : 'calm', [celebrating, tab])
+  const mood = useMemo(() => tab === 'market' ? 'thinking' : tab === 'wishes' ? 'happy' : 'calm', [tab])
+  const pendingMarket = items.filter((item) => !item.checked).length
 
   const changeTab = (next: Tab) => {
     setTab(next)
-    setCelebrating(false)
-    setCharacterMessage(tabCopy[next].message)
+    setMessage(tabMessages[next])
   }
 
-  const handleCharacterPress = () => {
-    const messages = ['أنا معك خطوة بخطوة.', 'مو كل تقدم لازم يكون سريعًا.', 'خطتك اليوم أوضح من أمس.', 'باقي القليل على هدفك الأقرب.']
-    const next = interactionCount + 1
-    setInteractionCount(next)
-    setCharacterMessage(messages[next % messages.length])
+  const addWish = () => {
+    const next: Wish = { id: Date.now(), title: 'جهاز جديد', icon: '💻', saved: 0, target: 8000, deadline: 'هدف جديد' }
+    setWishes((current) => [...current, next])
+    setMessage('أضفت هدفًا تجريبيًا. الخطوة القادمة هي نموذج الإدخال الحقيقي.')
   }
 
-  const celebrate = () => {
-    setCelebrating(true)
-    setCharacterMessage('يا سلام! تقدّمك حقيقي ويستاهل الاحتفال ✦')
-    window.setTimeout(() => setCelebrating(false), 3200)
+  const addMarketItem = () => {
+    setItems((current) => [...current, { id: Date.now(), title: 'عنصر جديد', quantity: 'حدد الكمية', owner: 'حمزة', checked: false }])
+    setMessage('تمت الإضافة محليًا. مع Supabase ستظهر فورًا للطرف الثاني.')
+  }
+
+  const pressCharacter = () => {
+    const messages = ['أنا متابع معك.', 'التقدم الهادئ أفضل من الحماس المؤقت.', 'كل قرار صغير يبان أثره آخر الشهر.']
+    const next = counter + 1
+    setCounter(next)
+    setMessage(messages[next % messages.length])
   }
 
   return (
     <div className="app-canvas">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
       <div className="phone-app">
-        <header className="topbar">
-          <div className="profile"><span className="avatar">ح</span><div><small>مساء الخير</small><strong>حمزة</strong></div></div>
-          <div className="topbar-actions"><button type="button" aria-label="التنبيهات"><Icon name="bell"/></button><span className="online-dot"/></div>
-        </header>
-
-        <div className="character-dock">
-          <RushdCharacter mood={mood} size="sm" message={characterMessage} interactive onPress={handleCharacterPress}/>
-        </div>
-
+        <header className="topbar"><div className="profile"><span className="avatar">ح</span><div><small>مساء الخير</small><strong>حمزة</strong></div></div><div className="sprint-badge"><span className="live-dot"/>Sprint 02</div></header>
+        <div className="character-dock"><RushdCharacter mood={mood} size="sm" message={message} interactive onPress={pressCharacter}/></div>
         <AnimatePresence mode="wait">
-          {tab === 'home' && <HomeView key="home" onCelebrate={celebrate}/>} 
-          {tab === 'month' && <MonthView key="month"/>}
-          {tab === 'goals' && <GoalsView key="goals"/>}
-          {tab === 'insights' && <InsightsView key="insights"/>}
+          {tab === 'home' && <HomeView key="home" wishes={wishes} pendingMarket={pendingMarket}/>} 
+          {tab === 'wishes' && <WishesView key="wishes" wishes={wishes} onAdd={addWish}/>} 
+          {tab === 'market' && <MarketView key="market" items={items} onToggle={(id) => setItems((current) => current.map((item) => item.id === id ? { ...item, checked: !item.checked } : item))} onAdd={addMarketItem}/>} 
         </AnimatePresence>
-
-        <nav className="bottom-nav" aria-label="التنقل الرئيسي">
-          <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')}><Icon name="home"/><span>الرئيسية</span></button>
-          <button type="button" className={tab === 'month' ? 'active' : ''} onClick={() => changeTab('month')}><Icon name="wallet"/><span>حساب الشهر</span></button>
-          <button type="button" className="main-action" aria-label="إضافة"><Icon name="plus" size={26}/></button>
-          <button type="button" className={tab === 'goals' ? 'active' : ''} onClick={() => changeTab('goals')}><Icon name="goal"/><span>الأهداف</span></button>
-          <button type="button" className={tab === 'insights' ? 'active' : ''} onClick={() => changeTab('insights')}><Icon name="chart"/><span>التحليلات</span></button>
+        <nav className="bottom-nav sprint-nav" aria-label="التنقل الرئيسي">
+          <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')}><span>⌂</span><small>الرئيسية</small></button>
+          <button type="button" className={tab === 'wishes' ? 'active' : ''} onClick={() => changeTab('wishes')}><span>♡</span><small>الأماني</small></button>
+          <button type="button" className={tab === 'market' ? 'active' : ''} onClick={() => changeTab('market')}><span>🛒</span><small>السوبرماركت</small></button>
         </nav>
       </div>
     </div>
