@@ -1,0 +1,11 @@
+{
+  "name": "رُشد — خطتك أوضح",
+  "short_name": "رُشد",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff8f1",
+  "theme_color": "#1f1c5b",
+  "description": "مركز القيادة المالي للعائلة"
+}
