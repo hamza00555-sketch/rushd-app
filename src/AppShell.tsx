@@ -3,10 +3,12 @@ import { AnimatePresence, motion } from 'framer-motion'
 import App from './App'
 import { HouseholdView } from './components/HouseholdView'
 import { PromotionSimulator } from './components/PromotionSimulator'
+import { WealthPlanner } from './components/WealthPlanner'
 
 export default function AppShell() {
   const [householdOpen, setHouseholdOpen] = useState(false)
   const [promotionOpen, setPromotionOpen] = useState(false)
+  const [wealthOpen, setWealthOpen] = useState(false)
 
   return (
     <>
@@ -14,11 +16,22 @@ export default function AppShell() {
       <div className="command-fabs" aria-label="أدوات رُشد السريعة">
         <motion.button
           type="button"
+          className="wealth-fab"
+          onClick={() => setWealthOpen(true)}
+          aria-label="فتح الاستثمارات والأهداف"
+          animate={{ y: [0, -5, 0], rotate: [0, 1, 0] }}
+          transition={{ duration: 3.8, repeat: Infinity }}
+        >
+          <span>◎</span>
+          <small>الثروة</small>
+        </motion.button>
+        <motion.button
+          type="button"
           className="promotion-fab"
           onClick={() => setPromotionOpen(true)}
           aria-label="فتح محاكي الترقية"
           animate={{ y: [0, -5, 0], rotate: [0, -1, 0] }}
-          transition={{ duration: 3.5, repeat: Infinity }}
+          transition={{ duration: 3.5, repeat: Infinity, delay: .2 }}
         >
           <span>↗</span>
           <small>الترقية</small>
@@ -38,6 +51,7 @@ export default function AppShell() {
       <AnimatePresence>
         {householdOpen && <HouseholdView onClose={() => setHouseholdOpen(false)} />}
         {promotionOpen && <PromotionSimulator onClose={() => setPromotionOpen(false)} />}
+        {wealthOpen && <WealthPlanner onClose={() => setWealthOpen(false)} />}
       </AnimatePresence>
     </>
   )
