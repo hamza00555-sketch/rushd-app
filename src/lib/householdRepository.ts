@@ -35,12 +35,7 @@ export type SharedWorkspaceData = {
   marketItems: SharedMarketItem[]
 }
 
-type HouseholdRow = {
-  id: string
-  name: string
-  owner_id: string
-}
-
+type HouseholdRow = { id: string; name: string; owner_id: string }
 type MemberRow = {
   id: string
   household_id: string
@@ -50,7 +45,6 @@ type MemberRow = {
   role: 'owner' | 'member'
   status: 'active' | 'pending'
 }
-
 type PermissionRow = {
   household_id: string
   member_id: string
@@ -58,23 +52,8 @@ type PermissionRow = {
   can_view: boolean
   can_edit: boolean
 }
-
-type ActivityRow = {
-  id: number
-  actor_name: string | null
-  action: string
-  detail: string | null
-  created_at: string
-}
-
-type MarketRow = {
-  id: string
-  title: string
-  quantity: string | null
-  added_by_name: string | null
-  checked: boolean
-}
-
+type ActivityRow = { id: number; actor_name: string | null; action: string; detail: string | null; created_at: string }
+type MarketRow = { id: string; title: string; quantity: string | null; added_by_name: string | null; checked: boolean }
 type WishRow = {
   id: string
   title: string
@@ -86,12 +65,17 @@ type WishRow = {
 }
 
 const getClient = () => {
-  if (!supabase) throw new Error('Supabase غير مفعّل بعد.')
+  if (!isSupabaseConfigured) throw new Error('Supabase غير مفعّل بعد.')
   return supabase
 }
 
 const throwOnError = (error: { message: string } | null) => {
   if (error) throw new Error(error.message)
+}
+
+const required = <T,>(value: T | null, message: string): T => {
+  if (value === null) throw new Error(message)
+  return value
 }
 
 const getUserName = (user: User) => {
@@ -124,11 +108,26 @@ const insertActivity = async (householdId: string, user: User, action: string, d
   throwOnError(error)
 }
 
+const seedOwnerPermissions = async (householdId: string, memberId: string) => {
+  const client = getClient()
+  const { error } = await client.from('module_permissions').upsert(
+    sharedModules.map((module) => ({
+      household_id: householdId,
+      member_id: memberId,
+      module,
+      can_view: true,
+      can_edit: true,
+    })),
+    { onConflict: 'member_id,module' },
+  )
+  throwOnError(error)
+}
+
 export const signInToRushd = async (email: string, password: string) => {
   const client = getClient()
   const { data, error } = await client.auth.signInWithPassword({ email, password })
   throwOnError(error)
-  return data.user
+  return required(data.user, 'تعذر تحميل المستخدم بعد تسجيل الدخول.')
 }
 
 export const signUpToRushd = async (name: string, email: string, password: string) => {
@@ -150,7 +149,8 @@ export const signOutFromRushd = async () => {
 
 export const ensureHousehold = async (user: User): Promise<string> => {
   const client = getClient()
-  await client.rpc('claim_household_invites')
+  const { error: claimError } = await client.rpc('claim_household_invites')
+  throwOnError(claimError)
 
   const { data: membership, error: membershipError } = await client
     .from('household_members')
@@ -172,7 +172,7 @@ export const ensureHousehold = async (user: User): Promise<string> => {
 
   if (owned?.id) {
     const householdId = String(owned.id)
-    const { data: ownerMember, error: ownerMemberError } = await client
+    const { data, error } = await client
       .from('household_members')
       .upsert({
         household_id: householdId,
@@ -185,20 +185,22 @@ export const ensureHousehold = async (user: User): Promise<string> => {
       }, { onConflict: 'household_id,user_id' })
       .select('id')
       .single()
-    throwOnError(ownerMemberError)
+    throwOnError(error)
+    const ownerMember = required(data, 'تعذر إنشاء عضوية المالك.')
     await seedOwnerPermissions(householdId, String(ownerMember.id))
     return householdId
   }
 
-  const { data: household, error: householdError } = await client
+  const { data: householdData, error: householdError } = await client
     .from('households')
     .insert({ name: `بيت ${getUserName(user)}`, owner_id: user.id })
     .select('id')
     .single()
   throwOnError(householdError)
+  const household = required(householdData, 'تعذر إنشاء مساحة العائلة.')
   const householdId = String(household.id)
 
-  const { data: ownerMember, error: memberError } = await client
+  const { data: memberData, error: memberError } = await client
     .from('household_members')
     .insert({
       household_id: householdId,
@@ -212,30 +214,15 @@ export const ensureHousehold = async (user: User): Promise<string> => {
     .select('id')
     .single()
   throwOnError(memberError)
+  const ownerMember = required(memberData, 'تعذر إنشاء عضوية المالك.')
   await seedOwnerPermissions(householdId, String(ownerMember.id))
   await insertActivity(householdId, user, 'أنشأ مساحة العائلة', `تم إنشاء بيت ${getUserName(user)}`)
   return householdId
 }
 
-const seedOwnerPermissions = async (householdId: string, memberId: string) => {
-  const client = getClient()
-  const { error } = await client.from('module_permissions').upsert(
-    sharedModules.map((module) => ({
-      household_id: householdId,
-      member_id: memberId,
-      module,
-      can_view: true,
-      can_edit: true,
-    })),
-    { onConflict: 'member_id,module' },
-  )
-  throwOnError(error)
-}
-
 export const loadHouseholdWorkspace = async (user: User): Promise<HouseholdWorkspace> => {
   const client = getClient()
   const householdId = await ensureHousehold(user)
-
   const [householdResult, membersResult, permissionsResult, activityResult] = await Promise.all([
     client.from('households').select('id,name,owner_id').eq('id', householdId).single(),
     client.from('household_members').select('id,household_id,user_id,invited_email,display_name,role,status').eq('household_id', householdId).order('created_at'),
@@ -248,7 +235,7 @@ export const loadHouseholdWorkspace = async (user: User): Promise<HouseholdWorks
   throwOnError(permissionsResult.error)
   throwOnError(activityResult.error)
 
-  const household = householdResult.data as HouseholdRow
+  const household = required(householdResult.data as HouseholdRow | null, 'تعذر تحميل مساحة العائلة.')
   const permissionRows = (permissionsResult.data ?? []) as PermissionRow[]
   const members = ((membersResult.data ?? []) as MemberRow[]).map<HouseholdMember>((member) => {
     const email = member.invited_email ?? ''
@@ -292,7 +279,7 @@ export const inviteHouseholdMember = async (workspace: HouseholdWorkspace, user:
   const email = emailInput.trim().toLowerCase()
   if (!email) throw new Error('اكتب البريد الإلكتروني أولًا.')
 
-  const { data: member, error } = await client
+  const { data, error } = await client
     .from('household_members')
     .insert({
       household_id: workspace.id,
@@ -304,8 +291,9 @@ export const inviteHouseholdMember = async (workspace: HouseholdWorkspace, user:
     .select('id')
     .single()
   throwOnError(error)
-
+  const member = required(data, 'تعذر إنشاء دعوة العضو.')
   const memberId = String(member.id)
+
   const { error: permissionsError } = await client.from('module_permissions').insert([
     { household_id: workspace.id, member_id: memberId, module: 'market', can_view: true, can_edit: true },
     { household_id: workspace.id, member_id: memberId, module: 'wishes', can_view: true, can_edit: false },
@@ -338,15 +326,12 @@ export const updateMemberAccess = async (
   await insertActivity(workspace.id, user, 'عدّل صلاحية', `${module} لـ ${member.name}: ${access}`)
 }
 
-export const subscribeToHousehold = (householdId: string, onChange: () => void): RealtimeChannel | null => {
-  if (!supabase) return null
-  return supabase
-    .channel(`household-${householdId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'household_members', filter: `household_id=eq.${householdId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'module_permissions', filter: `household_id=eq.${householdId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'household_activity', filter: `household_id=eq.${householdId}` }, onChange)
-    .subscribe()
-}
+export const subscribeToHousehold = (householdId: string, onChange: () => void): RealtimeChannel => supabase
+  .channel(`household-${householdId}`)
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'household_members', filter: `household_id=eq.${householdId}` }, onChange)
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'module_permissions', filter: `household_id=eq.${householdId}` }, onChange)
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'household_activity', filter: `household_id=eq.${householdId}` }, onChange)
+  .subscribe()
 
 export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspaceData> => {
   const client = getClient()
@@ -422,14 +407,11 @@ export const addSharedWish = async (
   await insertActivity(householdId, user, 'أضاف أمنية مشتركة', input.title)
 }
 
-export const subscribeToSharedData = (householdId: string, onChange: () => void): RealtimeChannel | null => {
-  if (!supabase) return null
-  return supabase
-    .channel(`shared-data-${householdId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_market_items', filter: `household_id=eq.${householdId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_wishes', filter: `household_id=eq.${householdId}` }, onChange)
-    .subscribe()
-}
+export const subscribeToSharedData = (householdId: string, onChange: () => void): RealtimeChannel => supabase
+  .channel(`shared-data-${householdId}`)
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_market_items', filter: `household_id=eq.${householdId}` }, onChange)
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_wishes', filter: `household_id=eq.${householdId}` }, onChange)
+  .subscribe()
 
 export const demoWorkspace: HouseholdWorkspace = {
   id: 'demo-household',
