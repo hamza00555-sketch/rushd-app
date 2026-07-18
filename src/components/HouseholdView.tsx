@@ -1,114 +1,286 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
+import type { User } from '@supabase/supabase-js'
 import {
-  initialHouseholdActivity,
-  initialHouseholdMembers,
+  accessLabels,
+  nextAccessLevel,
   sharedModuleLabels,
-  type HouseholdActivity,
-  type HouseholdMember,
+  sharedModules,
+  type HouseholdWorkspace,
   type SharedModule,
 } from '../lib/household'
-import { isSupabaseConfigured } from '../lib/supabase'
+import {
+  demoWorkspace,
+  inviteHouseholdMember,
+  isSupabaseConfigured,
+  loadHouseholdWorkspace,
+  signInToRushd,
+  signOutFromRushd,
+  signUpToRushd,
+  subscribeToHousehold,
+  updateMemberAccess,
+} from '../lib/householdRepository'
+import { supabase } from '../lib/supabase'
 
 export function HouseholdView({ onClose }: { onClose: () => void }) {
-  const [members, setMembers] = useState<HouseholdMember[]>(initialHouseholdMembers)
-  const [activity, setActivity] = useState<HouseholdActivity[]>(initialHouseholdActivity)
-  const [inviteEmail, setInviteEmail] = useState('')
+  const [workspace, setWorkspace] = useState<HouseholdWorkspace | null>(isSupabaseConfigured ? null : demoWorkspace)
+  const [user, setUser] = useState<User | null>(null)
   const [selectedMemberId, setSelectedMemberId] = useState('asma')
-  const selectedMember = members.find((member) => member.id === selectedMemberId) ?? members[1]
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(isSupabaseConfigured)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
-  const addActivity = (entry: Omit<HouseholdActivity, 'id' | 'time'>) => {
-    setActivity((current) => [{ ...entry, id: Date.now(), time: 'الآن' }, ...current])
+  const selectedMember = useMemo(() => {
+    if (!workspace) return null
+    return workspace.members.find((member) => member.id === selectedMemberId)
+      ?? workspace.members.find((member) => member.role !== 'owner')
+      ?? workspace.members[0]
+  }, [selectedMemberId, workspace])
+
+  const reloadWorkspace = async (activeUser: User) => {
+    const next = await loadHouseholdWorkspace(activeUser)
+    setWorkspace(next)
+    setSelectedMemberId((current) => next.members.some((member) => member.id === current)
+      ? current
+      : next.members.find((member) => member.role !== 'owner')?.id ?? next.members[0]?.id ?? '')
   }
 
-  const inviteMember = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const email = inviteEmail.trim().toLowerCase()
-    if (!email || members.some((member) => member.email === email)) return
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return
+    let active = true
 
-    const pending: HouseholdMember = {
-      id: `pending-${Date.now()}`,
-      name: email.split('@')[0] || 'عضو جديد',
-      initials: 'ج',
-      email,
-      role: 'member',
-      status: 'pending',
-      permissions: { market: true, wishes: false, noor: false },
-    }
-    setMembers((current) => [...current, pending])
-    setInviteEmail('')
-    addActivity({ actor: 'حمزة', action: 'أرسل دعوة', detail: email, icon: '✉' })
-  }
-
-  const togglePermission = (module: SharedModule) => {
-    if (!selectedMember || selectedMember.role === 'owner') return
-    setMembers((current) => current.map((member) => member.id === selectedMember.id ? {
-      ...member,
-      permissions: { ...member.permissions, [module]: !member.permissions[module] },
-    } : member))
-    addActivity({
-      actor: 'حمزة',
-      action: 'عدّل صلاحية',
-      detail: `${sharedModuleLabels[module].title} لـ ${selectedMember.name}`,
-      icon: '🔐',
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!active) return
+      setUser(data.session?.user ?? null)
+      setBusy(false)
     })
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return
+      setUser(session?.user ?? null)
+      setWorkspace(null)
+      setError('')
+      setNotice('')
+    })
+
+    return () => {
+      active = false
+      listener.subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    setBusy(true)
+    void reloadWorkspace(user)
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'تعذر تحميل مساحة العائلة.')
+      })
+      .finally(() => {
+        if (active) setBusy(false)
+      })
+    return () => { active = false }
+  }, [user])
+
+  useEffect(() => {
+    if (!user || !workspace || !isSupabaseConfigured || !supabase) return
+    const channel = subscribeToHousehold(workspace.id, () => {
+      void reloadWorkspace(user).catch(() => undefined)
+    })
+    return () => {
+      if (channel) void supabase.removeChannel(channel)
+    }
+  }, [user?.id, workspace?.id])
+
+  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setNotice('')
+    if (!email.trim() || password.length < 6) {
+      setError('اكتب بريدًا صحيحًا وكلمة مرور من 6 أحرف على الأقل.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      if (authMode === 'signin') {
+        const signedUser = await signInToRushd(email.trim().toLowerCase(), password)
+        setUser(signedUser)
+      } else {
+        const result = await signUpToRushd(name, email.trim().toLowerCase(), password)
+        if (result.session?.user) setUser(result.session.user)
+        else setNotice('تم إنشاء الحساب. افتح رسالة التأكيد في بريدك ثم سجل الدخول.')
+      }
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'تعذرت المصادقة.')
+    } finally {
+      setBusy(false)
+    }
   }
+
+  const inviteMember = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!workspace || !inviteEmail.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      if (!isSupabaseConfigured) {
+        const normalized = inviteEmail.trim().toLowerCase()
+        if (workspace.members.some((member) => member.email === normalized)) return
+        setWorkspace({
+          ...workspace,
+          members: [...workspace.members, {
+            id: `pending-${Date.now()}`,
+            name: normalized.split('@')[0],
+            initials: 'ج',
+            email: normalized,
+            role: 'member',
+            status: 'pending',
+            permissions: { market: 'edit', wishes: 'view', noor: 'view' },
+          }],
+          activity: [{ id: Date.now(), actor: 'حمزة', action: 'أرسل دعوة', detail: normalized, time: 'الآن', icon: '✉' }, ...workspace.activity],
+        })
+      } else if (user) {
+        await inviteHouseholdMember(workspace, user, inviteEmail)
+        await reloadWorkspace(user)
+      }
+      setInviteEmail('')
+      setNotice('تم تسجيل الدعوة. عند إنشاء العضو حسابًا بنفس البريد ينضم تلقائيًا للبيت.')
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'تعذر إرسال الدعوة.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cyclePermission = async (module: SharedModule) => {
+    if (!workspace || !selectedMember || selectedMember.role === 'owner' || !workspace.isOwner) return
+    const next = nextAccessLevel(selectedMember.permissions[module])
+    setError('')
+    try {
+      if (!isSupabaseConfigured) {
+        setWorkspace({
+          ...workspace,
+          members: workspace.members.map((member) => member.id === selectedMember.id
+            ? { ...member, permissions: { ...member.permissions, [module]: next } }
+            : member),
+          activity: [{ id: Date.now(), actor: 'حمزة', action: 'عدّل صلاحية', detail: `${sharedModuleLabels[module].title} لـ ${selectedMember.name}: ${accessLabels[next]}`, time: 'الآن', icon: '🔐' }, ...workspace.activity],
+        })
+      } else if (user) {
+        await updateMemberAccess(workspace, user, selectedMember, module, next)
+        await reloadWorkspace(user)
+      }
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'تعذر تعديل الصلاحية.')
+    }
+  }
+
+  const logout = async () => {
+    setBusy(true)
+    try {
+      await signOutFromRushd()
+      setUser(null)
+      setWorkspace(null)
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'تعذر تسجيل الخروج.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const syncLabel = !isSupabaseConfigured ? 'معاينة بدون خادم' : user && workspace ? 'متصل لحظيًا' : 'بانتظار تسجيل الدخول'
 
   return (
     <motion.section className="household-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div className="household-sheet" initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
         <header className="household-header">
           <button type="button" onClick={onClose} aria-label="إغلاق">×</button>
-          <div><span>المساحة العائلية</span><h1>بيت حمزة</h1><p>أنت المالك. كل عضو يرى فقط الوحدات التي تشاركها معه.</p></div>
-          <div className={`sync-chip ${isSupabaseConfigured ? 'connected' : ''}`}><i/>{isSupabaseConfigured ? 'Supabase جاهز' : 'وضع تجريبي'}</div>
+          <div><span>المساحة العائلية</span><h1>{workspace?.name ?? 'رُشد للعائلة'}</h1><p>الحساب المالي الكامل خاص بالمالك. المشاركة تقتصر على الوحدات التي يمنحها لكل عضو.</p></div>
+          <div className={`sync-chip ${user && workspace ? 'connected' : ''}`}><i/>{syncLabel}</div>
+          {user && <button type="button" className="signout-button" onClick={logout} disabled={busy}>خروج</button>}
         </header>
 
-        <section className="household-card member-card">
-          <div className="household-title"><div><span>أعضاء البيت</span><h2>{members.length} أعضاء</h2></div><small>المالك يتحكم بالصلاحيات</small></div>
-          <div className="member-list">
-            {members.map((member) => (
-              <button type="button" className={`member-row ${selectedMemberId === member.id ? 'selected' : ''}`} onClick={() => setSelectedMemberId(member.id)} key={member.id}>
-                <span className="member-avatar">{member.initials}</span>
-                <span><strong>{member.name}</strong><small>{member.role === 'owner' ? 'المالك' : member.status === 'pending' ? 'الدعوة معلقة' : 'عضو'}</small></span>
-                <b className={member.status}>{member.status === 'active' ? 'نشط' : 'بانتظار القبول'}</b>
-              </button>
-            ))}
-          </div>
-          <form className="invite-form" onSubmit={inviteMember}>
-            <input type="email" placeholder="البريد الإلكتروني للعضو" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} aria-label="البريد الإلكتروني للعضو"/>
-            <button type="submit">إرسال دعوة</button>
-          </form>
-        </section>
+        {isSupabaseConfigured && !user && (
+          <section className="household-card auth-card">
+            <div className="auth-tabs">
+              <button type="button" className={authMode === 'signin' ? 'active' : ''} onClick={() => setAuthMode('signin')}>تسجيل الدخول</button>
+              <button type="button" className={authMode === 'signup' ? 'active' : ''} onClick={() => setAuthMode('signup')}>حساب جديد</button>
+            </div>
+            <div className="household-title"><div><span>حساب مستقل لكل عضو</span><h2>{authMode === 'signin' ? 'ادخل إلى بيتك' : 'أنشئ حساب رُشد'}</h2></div><small>البريد وكلمة المرور</small></div>
+            <form className="auth-form" onSubmit={submitAuth}>
+              {authMode === 'signup' && <input placeholder="الاسم" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name"/>}
+              <input type="email" placeholder="البريد الإلكتروني" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email"/>
+              <input type="password" placeholder="كلمة المرور" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}/>
+              <button type="submit" disabled={busy}>{busy ? 'جاري الاتصال…' : authMode === 'signin' ? 'دخول' : 'إنشاء الحساب'}</button>
+            </form>
+          </section>
+        )}
 
-        <section className="household-card permissions-card">
-          <div className="household-title"><div><span>الصلاحيات</span><h2>وصول {selectedMember?.name}</h2></div><small>{selectedMember?.role === 'owner' ? 'صلاحيات كاملة' : 'تُحدّث فورًا'}</small></div>
-          <div className="permission-list">
-            {(Object.keys(sharedModuleLabels) as SharedModule[]).map((module) => {
-              const definition = sharedModuleLabels[module]
-              const enabled = selectedMember?.permissions[module] ?? false
-              return (
-                <button type="button" className="permission-row" onClick={() => togglePermission(module)} disabled={selectedMember?.role === 'owner'} key={module}>
-                  <span className="permission-icon">{definition.icon}</span>
-                  <span><strong>{definition.title}</strong><small>{definition.description}</small></span>
-                  <i className={`permission-switch ${enabled ? 'enabled' : ''}`}><b/></i>
-                </button>
-              )
-            })}
-          </div>
-        </section>
+        {busy && !workspace && <section className="household-card loading-card"><span className="live-dot"/><strong>جاري تجهيز مساحة البيت…</strong></section>}
+        {error && <div className="household-message error-message">{error}</div>}
+        {notice && <div className="household-message notice-message">{notice}</div>}
 
-        <section className="household-card activity-card">
-          <div className="household-title"><div><span>سجل البيت</span><h2>آخر النشاطات</h2></div><small>شفافية بدون كشف بياناتك الخاصة</small></div>
-          <div className="activity-list">
-            {activity.slice(0, 5).map((entry, index) => (
-              <motion.article key={entry.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .05 }}>
-                <span>{entry.icon}</span><div><strong>{entry.actor} · {entry.action}</strong><p>{entry.detail}</p></div><small>{entry.time}</small>
-              </motion.article>
-            ))}
-          </div>
-        </section>
+        {workspace && (
+          <>
+            <section className="household-card member-card">
+              <div className="household-title"><div><span>أعضاء البيت</span><h2>{workspace.members.length} أعضاء</h2></div><small>{workspace.isOwner ? 'أنت تتحكم بالصلاحيات' : 'تظهر لك صلاحيات حسابك فقط'}</small></div>
+              <div className="member-list">
+                {workspace.members.map((member) => (
+                  <button type="button" className={`member-row ${selectedMember?.id === member.id ? 'selected' : ''}`} onClick={() => setSelectedMemberId(member.id)} key={member.id}>
+                    <span className="member-avatar">{member.initials}</span>
+                    <span><strong>{member.name}</strong><small>{member.role === 'owner' ? 'المالك' : member.status === 'pending' ? member.email : 'عضو'}</small></span>
+                    <b className={member.status}>{member.status === 'active' ? 'نشط' : 'بانتظار القبول'}</b>
+                  </button>
+                ))}
+              </div>
+              {workspace.isOwner && (
+                <form className="invite-form" onSubmit={inviteMember}>
+                  <input type="email" placeholder="البريد الإلكتروني للعضو" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} aria-label="البريد الإلكتروني للعضو"/>
+                  <button type="submit" disabled={busy}>إرسال دعوة</button>
+                </form>
+              )}
+            </section>
 
-        {!isSupabaseConfigured && <section className="supabase-blocker"><strong>المتبقي لتفعيل المزامنة الحقيقية</strong><p>أضف <code>VITE_SUPABASE_URL</code> و<code>VITE_SUPABASE_ANON_KEY</code> في Vercel، ثم نفّذ ملف <code>supabase/migrations/001_households.sql</code>.</p></section>}
+            {selectedMember && (
+              <section className="household-card permissions-card">
+                <div className="household-title"><div><span>الصلاحيات</span><h2>وصول {selectedMember.name}</h2></div><small>{selectedMember.role === 'owner' ? 'صلاحيات كاملة' : workspace.isOwner ? 'اضغط لتغيير المستوى' : 'للقراءة فقط'}</small></div>
+                <div className="permission-list">
+                  {sharedModules.map((module) => {
+                    const definition = sharedModuleLabels[module]
+                    const access = selectedMember.permissions[module]
+                    return (
+                      <button type="button" className="permission-row" onClick={() => cyclePermission(module)} disabled={selectedMember.role === 'owner' || !workspace.isOwner} key={module}>
+                        <span className="permission-icon">{definition.icon}</span>
+                        <span><strong>{definition.title}</strong><small>{definition.description}</small></span>
+                        <i className={`access-pill access-${access}`}>{accessLabels[access]}</i>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            <section className="household-card activity-card">
+              <div className="household-title"><div><span>سجل البيت</span><h2>آخر النشاطات</h2></div><small>بدون كشف حسابك المالي الخاص</small></div>
+              <div className="activity-list">
+                {workspace.activity.length === 0 && <div className="empty-household-state">لا يوجد نشاط مشترك حتى الآن.</div>}
+                {workspace.activity.slice(0, 7).map((entry, index) => (
+                  <motion.article key={entry.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .05 }}>
+                    <span>{entry.icon}</span><div><strong>{entry.actor} · {entry.action}</strong><p>{entry.detail}</p></div><small>{entry.time}</small>
+                  </motion.article>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
+
+        {!isSupabaseConfigured && <section className="supabase-blocker"><strong>المعاينة تعمل، لكن المزامنة غير مفعلة</strong><p>أضف <code>VITE_SUPABASE_URL</code> و<code>VITE_SUPABASE_ANON_KEY</code> في Vercel، ثم نفّذ ملف <code>supabase/migrations/001_households.sql</code>. بعدها تتحول هذه الواجهة تلقائيًا إلى بيانات حقيقية.</p></section>}
       </motion.div>
     </motion.section>
   )
