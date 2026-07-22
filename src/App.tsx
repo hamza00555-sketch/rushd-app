@@ -41,8 +41,8 @@ const syncMessage = (status: SharedSyncStatus, error: string) => {
   if (status === 'synced') return { title: 'متصل لحظيًا', body: 'أي تعديل يظهر لأعضاء البيت مباشرة.' }
   if (status === 'connecting') return { title: 'جاري المزامنة', body: 'رُشد يحمّل آخر تحديثات البيت.' }
   if (status === 'signed-out') return { title: 'المزامنة متوقفة', body: 'افتح مساحة العائلة وسجل الدخول لتفعيل المشاركة.' }
-  if (status === 'error') return { title: 'تعذر التحديث', body: error || 'راجع إعداد Supabase وحاول مرة ثانية.' }
-  return { title: 'معاينة الواجهة', body: 'تتحول إلى مزامنة حقيقية فور إضافة مفاتيح Supabase.' }
+  if (status === 'error') return { title: 'تعذر التحديث', body: error || 'راجع اتصال Firebase وحاول مرة ثانية.' }
+  return { title: 'المزامنة غير مفعلة', body: 'سجل الدخول من مساحة العائلة لتفعيل المشاركة بين الأجهزة.' }
 }
 
 function ProgressBar({ value, tone = 'default' }: { value: number; tone?: string }) {
@@ -333,7 +333,7 @@ export default function App() {
     <div className="app-canvas">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
       <div className="phone-app">
-        <header className="topbar"><div className="profile"><span className="avatar">ح</span><div><small>مساء الخير</small><strong>حمزة</strong></div></div><div className="sprint-badge"><span className="live-dot"/>Sprint 04</div></header>
+        <header className="topbar"><div className="profile"><span className="avatar">ح</span><div><small>مساء الخير</small><strong>حمزة</strong></div></div></header>
         <div className="character-dock"><RushdCharacter mood={mood} size="sm" message={message} interactive onPress={pressCharacter}/></div>
         <AnimatePresence mode="wait">
           {tab === 'home' && <HomeView key="home" salary={salary} categories={categories} wishes={shared.wishes} pendingMarket={pendingMarket} onOpenMonth={() => changeTab('month')}/>} 
@@ -341,7 +341,7 @@ export default function App() {
           {tab === 'wishes' && <WishesView key="wishes" wishes={shared.wishes} onAdd={() => void addWish()} syncStatus={shared.status} syncError={shared.error}/>} 
           {tab === 'market' && <MarketView key="market" items={shared.marketItems} onToggle={(item) => void toggleMarketItem(item)} onAdd={() => void addMarketItem()} syncStatus={shared.status} syncError={shared.error}/>} 
         </AnimatePresence>
-        <nav className="bottom-nav sprint-nav sprint03-nav" aria-label="التنقل الرئيسي">
+        <nav className="bottom-nav" aria-label="التنقل الرئيسي">
           <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')}><span>⌂</span><small>الرئيسية</small></button>
           <button type="button" className={tab === 'month' ? 'active' : ''} onClick={() => changeTab('month')}><span>◫</span><small>حساب الشهر</small></button>
           <button type="button" className={tab === 'wishes' ? 'active' : ''} onClick={() => changeTab('wishes')}><span>♡</span><small>الأماني</small></button>
