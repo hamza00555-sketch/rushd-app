@@ -12,7 +12,7 @@ export type HouseholdMember = {
 }
 
 export type HouseholdActivity = {
-  id: number
+  id: string | number
   actor: string
   action: string
   detail: string
