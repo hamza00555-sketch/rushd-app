@@ -1,4 +1,30 @@
-import type { RealtimeChannel, User } from '@supabase/supabase-js'
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  type Unsubscribe,
+  type User,
+} from 'firebase/auth'
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+  where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore'
 import {
   initialHouseholdActivity,
   initialHouseholdMembers,
@@ -9,7 +35,7 @@ import {
   type HouseholdWorkspace,
   type SharedModule,
 } from './household'
-import { isSupabaseConfigured, supabase } from './supabase'
+import { auth, db, isFirebaseConfigured } from './firebase'
 
 export type SharedWish = {
   id: string
@@ -35,271 +61,219 @@ export type SharedWorkspaceData = {
   marketItems: SharedMarketItem[]
 }
 
-type HouseholdRow = { id: string; name: string; owner_id: string }
-type MemberRow = {
-  id: string
-  household_id: string
-  user_id: string | null
-  invited_email: string | null
-  display_name: string | null
-  role: 'owner' | 'member'
-  status: 'active' | 'pending'
-}
-type PermissionRow = {
-  household_id: string
-  member_id: string
-  module: SharedModule
-  can_view: boolean
-  can_edit: boolean
-}
-type ActivityRow = { id: number; actor_name: string | null; action: string; detail: string | null; created_at: string }
-type MarketRow = { id: string; title: string; quantity: string | null; added_by_name: string | null; checked: boolean }
-type WishRow = {
-  id: string
-  title: string
-  icon: string | null
-  saved: number | string
-  target: number | string
-  deadline_label: string | null
-  owner_name: string | null
+const ownerPermissions: Record<SharedModule, AccessLevel> = {
+  market: 'edit',
+  wishes: 'edit',
+  noor: 'edit',
 }
 
-const getClient = () => {
-  if (!isSupabaseConfigured) throw new Error('Supabase غير مفعّل بعد.')
-  return supabase
+const defaultMemberPermissions: Record<SharedModule, AccessLevel> = {
+  market: 'edit',
+  wishes: 'view',
+  noor: 'view',
 }
 
-const throwOnError = (error: { message: string } | null) => {
-  if (error) throw new Error(error.message)
-}
-
-const required = <T,>(value: T | null, message: string): T => {
-  if (value === null) throw new Error(message)
-  return value
-}
-
-const getUserName = (user: User) => {
-  const metadataName = typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : ''
-  return metadataName || user.email?.split('@')[0] || 'عضو رُشد'
-}
-
+const getUserName = (user: User) => user.displayName?.trim() || user.email?.split('@')[0] || 'عضو رُشد'
 const getInitials = (name: string) => name.trim().slice(0, 1) || 'ر'
+const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
-const toAccessLevel = (permission: PermissionRow | undefined): AccessLevel => {
-  if (!permission?.can_view) return 'none'
-  return permission.can_edit ? 'edit' : 'view'
-}
-
-const formatActivityTime = (value: string) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'الآن'
+const formatActivityTime = (value: unknown) => {
+  const date = value instanceof Timestamp ? value.toDate() : value instanceof Date ? value : null
+  if (!date) return 'الآن'
   return date.toLocaleString('ar-SA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 const insertActivity = async (householdId: string, user: User, action: string, detail: string) => {
-  const client = getClient()
-  const { error } = await client.from('household_activity').insert({
-    household_id: householdId,
-    actor_id: user.id,
-    actor_name: getUserName(user),
+  await addDoc(collection(db, 'households', householdId, 'activity'), {
+    actorId: user.uid,
+    actorName: getUserName(user),
     action,
     detail,
+    createdAt: serverTimestamp(),
   })
-  throwOnError(error)
 }
 
-const seedOwnerPermissions = async (householdId: string, memberId: string) => {
-  const client = getClient()
-  const { error } = await client.from('module_permissions').upsert(
-    sharedModules.map((module) => ({
-      household_id: householdId,
-      member_id: memberId,
-      module,
-      can_view: true,
-      can_edit: true,
-    })),
-    { onConflict: 'member_id,module' },
-  )
-  throwOnError(error)
+const memberFromSnapshot = (snapshot: QueryDocumentSnapshot<DocumentData>): HouseholdMember => {
+  const data = snapshot.data()
+  const name = String(data.displayName || data.email?.split('@')[0] || 'عضو')
+  return {
+    id: snapshot.id,
+    name,
+    initials: getInitials(name),
+    email: String(data.email || ''),
+    role: data.role === 'owner' ? 'owner' : 'member',
+    status: data.status === 'pending' ? 'pending' : 'active',
+    permissions: (data.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>,
+  }
 }
 
 export const signInToRushd = async (email: string, password: string) => {
-  const client = getClient()
-  const { data, error } = await client.auth.signInWithPassword({ email, password })
-  throwOnError(error)
-  return required(data.user, 'تعذر تحميل المستخدم بعد تسجيل الدخول.')
+  const credential = await signInWithEmailAndPassword(auth, normalizeEmail(email), password)
+  return credential.user
 }
 
 export const signUpToRushd = async (name: string, email: string, password: string) => {
-  const client = getClient()
-  const { data, error } = await client.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: name.trim() || email.split('@')[0] } },
-  })
-  throwOnError(error)
-  return data
+  const credential = await createUserWithEmailAndPassword(auth, normalizeEmail(email), password)
+  const displayName = name.trim() || normalizeEmail(email).split('@')[0]
+  await updateProfile(credential.user, { displayName })
+  await setDoc(doc(db, 'users', credential.user.uid), {
+    displayName,
+    email: normalizeEmail(email),
+    createdAt: serverTimestamp(),
+  }, { merge: true })
+  return credential.user
 }
 
-export const signOutFromRushd = async () => {
-  const client = getClient()
-  const { error } = await client.auth.signOut()
-  throwOnError(error)
+export const signOutFromRushd = async () => signOut(auth)
+
+const restoreOwnerMembership = async (user: User, householdId: string) => {
+  const householdSnapshot = await getDoc(doc(db, 'households', householdId))
+  if (!householdSnapshot.exists() || householdSnapshot.data().ownerId !== user.uid) return false
+  await setDoc(doc(db, 'households', householdId, 'members', user.uid), {
+    userId: user.uid,
+    displayName: getUserName(user),
+    email: normalizeEmail(user.email || ''),
+    role: 'owner',
+    status: 'active',
+    permissions: ownerPermissions,
+    joinedAt: serverTimestamp(),
+  }, { merge: true })
+  return true
 }
 
 export const ensureHousehold = async (user: User): Promise<string> => {
-  const client = getClient()
-  const { error: claimError } = await client.rpc('claim_household_invites')
-  throwOnError(claimError)
+  const profileRef = doc(db, 'users', user.uid)
+  const profileSnapshot = await getDoc(profileRef)
+  const savedHouseholdId = profileSnapshot.exists() ? String(profileSnapshot.data().householdId || '') : ''
 
-  const { data: membership, error: membershipError } = await client
-    .from('household_members')
-    .select('household_id')
-    .eq('user_id', user.id)
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle()
-  throwOnError(membershipError)
-  if (membership?.household_id) return String(membership.household_id)
-
-  const { data: owned, error: ownedError } = await client
-    .from('households')
-    .select('id')
-    .eq('owner_id', user.id)
-    .limit(1)
-    .maybeSingle()
-  throwOnError(ownedError)
-
-  if (owned?.id) {
-    const householdId = String(owned.id)
-    const { data, error } = await client
-      .from('household_members')
-      .upsert({
-        household_id: householdId,
-        user_id: user.id,
-        invited_email: user.email?.toLowerCase() ?? null,
-        display_name: getUserName(user),
-        role: 'owner',
-        status: 'active',
-        joined_at: new Date().toISOString(),
-      }, { onConflict: 'household_id,user_id' })
-      .select('id')
-      .single()
-    throwOnError(error)
-    const ownerMember = required(data, 'تعذر إنشاء عضوية المالك.')
-    await seedOwnerPermissions(householdId, String(ownerMember.id))
-    return householdId
+  if (savedHouseholdId) {
+    const membershipSnapshot = await getDoc(doc(db, 'households', savedHouseholdId, 'members', user.uid))
+    if (membershipSnapshot.exists() || await restoreOwnerMembership(user, savedHouseholdId)) return savedHouseholdId
   }
 
-  const { data: householdData, error: householdError } = await client
-    .from('households')
-    .insert({ name: `بيت ${getUserName(user)}`, owner_id: user.id })
-    .select('id')
-    .single()
-  throwOnError(householdError)
-  const household = required(householdData, 'تعذر إنشاء مساحة العائلة.')
-  const householdId = String(household.id)
+  const email = normalizeEmail(user.email || '')
+  if (email) {
+    const inviteRef = doc(db, 'householdInvites', email)
+    const inviteSnapshot = await getDoc(inviteRef)
+    if (inviteSnapshot.exists()) {
+      const invite = inviteSnapshot.data()
+      const householdId = String(invite.householdId)
+      await setDoc(doc(db, 'households', householdId, 'members', user.uid), {
+        userId: user.uid,
+        displayName: getUserName(user),
+        email,
+        role: 'member',
+        status: 'active',
+        permissions: invite.permissions || defaultMemberPermissions,
+        joinedAt: serverTimestamp(),
+      })
+      await setDoc(profileRef, {
+        displayName: getUserName(user),
+        email,
+        householdId,
+        createdAt: profileSnapshot.exists() ? profileSnapshot.data().createdAt : serverTimestamp(),
+      }, { merge: true })
+      await deleteDoc(inviteRef)
+      await insertActivity(householdId, user, 'انضم إلى البيت', email)
+      return householdId
+    }
+  }
 
-  const { data: memberData, error: memberError } = await client
-    .from('household_members')
-    .insert({
-      household_id: householdId,
-      user_id: user.id,
-      invited_email: user.email?.toLowerCase() ?? null,
-      display_name: getUserName(user),
-      role: 'owner',
-      status: 'active',
-      joined_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single()
-  throwOnError(memberError)
-  const ownerMember = required(memberData, 'تعذر إنشاء عضوية المالك.')
-  await seedOwnerPermissions(householdId, String(ownerMember.id))
-  await insertActivity(householdId, user, 'أنشأ مساحة العائلة', `تم إنشاء بيت ${getUserName(user)}`)
+  const householdRef = doc(collection(db, 'households'))
+  const householdId = householdRef.id
+  const householdName = `بيت ${getUserName(user)}`
+  await setDoc(householdRef, {
+    name: householdName,
+    ownerId: user.uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  await setDoc(doc(db, 'households', householdId, 'members', user.uid), {
+    userId: user.uid,
+    displayName: getUserName(user),
+    email,
+    role: 'owner',
+    status: 'active',
+    permissions: ownerPermissions,
+    joinedAt: serverTimestamp(),
+  })
+  await setDoc(profileRef, {
+    displayName: getUserName(user),
+    email,
+    householdId,
+    createdAt: profileSnapshot.exists() ? profileSnapshot.data().createdAt : serverTimestamp(),
+  }, { merge: true })
+  await insertActivity(householdId, user, 'أنشأ مساحة العائلة', householdName)
   return householdId
 }
 
 export const loadHouseholdWorkspace = async (user: User): Promise<HouseholdWorkspace> => {
-  const client = getClient()
   const householdId = await ensureHousehold(user)
-  const [householdResult, membersResult, permissionsResult, activityResult] = await Promise.all([
-    client.from('households').select('id,name,owner_id').eq('id', householdId).single(),
-    client.from('household_members').select('id,household_id,user_id,invited_email,display_name,role,status').eq('household_id', householdId).order('created_at'),
-    client.from('module_permissions').select('household_id,member_id,module,can_view,can_edit').eq('household_id', householdId),
-    client.from('household_activity').select('id,actor_name,action,detail,created_at').eq('household_id', householdId).order('created_at', { ascending: false }).limit(20),
+  const householdSnapshot = await getDoc(doc(db, 'households', householdId))
+  if (!householdSnapshot.exists()) throw new Error('تعذر تحميل مساحة العائلة.')
+
+  const household = householdSnapshot.data()
+  const isOwner = household.ownerId === user.uid
+  const [membersSnapshot, activitySnapshot] = await Promise.all([
+    getDocs(query(collection(db, 'households', householdId, 'members'), orderBy('joinedAt', 'asc'))),
+    getDocs(query(collection(db, 'households', householdId, 'activity'), orderBy('createdAt', 'desc'), limit(20))),
   ])
 
-  throwOnError(householdResult.error)
-  throwOnError(membersResult.error)
-  throwOnError(permissionsResult.error)
-  throwOnError(activityResult.error)
+  const members = membersSnapshot.docs.map(memberFromSnapshot)
 
-  const household = required(householdResult.data as HouseholdRow | null, 'تعذر تحميل مساحة العائلة.')
-  const permissionRows = (permissionsResult.data ?? []) as PermissionRow[]
-  const members = ((membersResult.data ?? []) as MemberRow[]).map<HouseholdMember>((member) => {
-    const email = member.invited_email ?? ''
-    const name = member.display_name?.trim() || email.split('@')[0] || 'عضو'
-    const permissions = Object.fromEntries(sharedModules.map((module) => {
-      const permission = permissionRows.find((row) => row.member_id === member.id && row.module === module)
-      return [module, member.role === 'owner' ? 'edit' : toAccessLevel(permission)]
-    })) as HouseholdMember['permissions']
+  if (isOwner) {
+    const invitesSnapshot = await getDocs(query(collection(db, 'householdInvites'), where('householdId', '==', householdId)))
+    invitesSnapshot.docs.forEach((snapshot) => {
+      const data = snapshot.data()
+      const email = String(data.email || snapshot.id)
+      const name = String(data.displayName || email.split('@')[0])
+      members.push({
+        id: `invite:${snapshot.id}`,
+        name,
+        initials: getInitials(name),
+        email,
+        role: 'member',
+        status: 'pending',
+        permissions: (data.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>,
+      })
+    })
+  }
 
+  const activity = activitySnapshot.docs.map<HouseholdActivity>((snapshot) => {
+    const entry = snapshot.data()
+    const action = String(entry.action || '')
     return {
-      id: member.id,
-      name,
-      initials: getInitials(name),
-      email,
-      role: member.role,
-      status: member.status,
-      permissions,
+      id: snapshot.id,
+      actor: String(entry.actorName || 'عضو رُشد'),
+      action,
+      detail: String(entry.detail || ''),
+      time: formatActivityTime(entry.createdAt),
+      icon: action.includes('دعوة') ? '✉' : action.includes('صلاحية') ? '🔐' : action.includes('شراء') ? '🛒' : '⌂',
     }
   })
 
-  const activity = ((activityResult.data ?? []) as ActivityRow[]).map<HouseholdActivity>((entry) => ({
-    id: entry.id,
-    actor: entry.actor_name || 'عضو رُشد',
-    action: entry.action,
-    detail: entry.detail || '',
-    time: formatActivityTime(entry.created_at),
-    icon: entry.action.includes('دعوة') ? '✉' : entry.action.includes('صلاحية') ? '🔐' : entry.action.includes('شراء') ? '🛒' : '⌂',
-  }))
-
   return {
-    id: household.id,
-    name: household.name,
-    isOwner: household.owner_id === user.id,
+    id: householdId,
+    name: String(household.name || 'رُشد للعائلة'),
+    isOwner,
     members,
     activity,
   }
 }
 
 export const inviteHouseholdMember = async (workspace: HouseholdWorkspace, user: User, emailInput: string) => {
-  const client = getClient()
-  const email = emailInput.trim().toLowerCase()
+  if (!workspace.isOwner) throw new Error('المالك فقط يقدر يرسل الدعوات.')
+  const email = normalizeEmail(emailInput)
   if (!email) throw new Error('اكتب البريد الإلكتروني أولًا.')
 
-  const { data, error } = await client
-    .from('household_members')
-    .insert({
-      household_id: workspace.id,
-      invited_email: email,
-      display_name: email.split('@')[0],
-      role: 'member',
-      status: 'pending',
-    })
-    .select('id')
-    .single()
-  throwOnError(error)
-  const member = required(data, 'تعذر إنشاء دعوة العضو.')
-  const memberId = String(member.id)
-
-  const { error: permissionsError } = await client.from('module_permissions').insert([
-    { household_id: workspace.id, member_id: memberId, module: 'market', can_view: true, can_edit: true },
-    { household_id: workspace.id, member_id: memberId, module: 'wishes', can_view: true, can_edit: false },
-    { household_id: workspace.id, member_id: memberId, module: 'noor', can_view: true, can_edit: false },
-  ])
-  throwOnError(permissionsError)
+  await setDoc(doc(db, 'householdInvites', email), {
+    householdId: workspace.id,
+    email,
+    displayName: email.split('@')[0],
+    permissions: defaultMemberPermissions,
+    invitedBy: user.uid,
+    createdAt: serverTimestamp(),
+  })
   await insertActivity(workspace.id, user, 'أرسل دعوة', email)
 }
 
@@ -310,80 +284,78 @@ export const updateMemberAccess = async (
   module: SharedModule,
   access: AccessLevel,
 ) => {
-  const client = getClient()
   if (!workspace.isOwner) throw new Error('المالك فقط يقدر يعدل الصلاحيات.')
   if (member.role === 'owner') return
 
-  const { error } = await client.from('module_permissions').upsert({
-    household_id: workspace.id,
-    member_id: member.id,
-    module,
-    can_view: access !== 'none',
-    can_edit: access === 'edit',
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'member_id,module' })
-  throwOnError(error)
+  const permissions = { ...member.permissions, [module]: access }
+  if (member.id.startsWith('invite:')) {
+    await updateDoc(doc(db, 'householdInvites', member.id.slice('invite:'.length)), { permissions })
+  } else {
+    await updateDoc(doc(db, 'households', workspace.id, 'members', member.id), { permissions })
+  }
   await insertActivity(workspace.id, user, 'عدّل صلاحية', `${module} لـ ${member.name}: ${access}`)
 }
 
-export const subscribeToHousehold = (householdId: string, onChange: () => void): RealtimeChannel => supabase
-  .channel(`household-${householdId}`)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'household_members', filter: `household_id=eq.${householdId}` }, onChange)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'module_permissions', filter: `household_id=eq.${householdId}` }, onChange)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'household_activity', filter: `household_id=eq.${householdId}` }, onChange)
-  .subscribe()
+export const subscribeToHousehold = (householdId: string, onChange: () => void): Unsubscribe => {
+  const unsubscribers = [
+    onSnapshot(collection(db, 'households', householdId, 'members'), onChange),
+    onSnapshot(collection(db, 'households', householdId, 'activity'), onChange),
+  ]
+  return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
+}
 
 export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspaceData> => {
-  const client = getClient()
   const householdId = await ensureHousehold(user)
-  const [marketResult, wishesResult] = await Promise.all([
-    client.from('shared_market_items').select('id,title,quantity,added_by_name,checked').eq('household_id', householdId).order('created_at'),
-    client.from('shared_wishes').select('id,title,icon,saved,target,deadline_label,owner_name').eq('household_id', householdId).eq('is_shared', true).order('created_at'),
+  const [marketSnapshot, wishesSnapshot] = await Promise.all([
+    getDocs(query(collection(db, 'households', householdId, 'marketItems'), orderBy('createdAt', 'asc'))),
+    getDocs(query(collection(db, 'households', householdId, 'wishes'), orderBy('createdAt', 'asc'))),
   ])
-  throwOnError(marketResult.error)
-  throwOnError(wishesResult.error)
 
   return {
     householdId,
-    marketItems: ((marketResult.data ?? []) as MarketRow[]).map((item) => ({
-      id: item.id,
-      title: item.title,
-      quantity: item.quantity || 'بدون كمية',
-      owner: item.added_by_name || 'عضو رُشد',
-      checked: item.checked,
-    })),
-    wishes: ((wishesResult.data ?? []) as WishRow[]).map((wish) => ({
-      id: wish.id,
-      title: wish.title,
-      icon: wish.icon || '♡',
-      saved: Number(wish.saved),
-      target: Number(wish.target),
-      deadline: wish.deadline_label || 'بدون موعد',
-      owner: wish.owner_name || 'العائلة',
-    })),
+    marketItems: marketSnapshot.docs.map((snapshot) => {
+      const item = snapshot.data()
+      return {
+        id: snapshot.id,
+        title: String(item.title || ''),
+        quantity: String(item.quantity || 'بدون كمية'),
+        owner: String(item.addedByName || 'عضو رُشد'),
+        checked: Boolean(item.checked),
+      }
+    }),
+    wishes: wishesSnapshot.docs.map((snapshot) => {
+      const wish = snapshot.data()
+      return {
+        id: snapshot.id,
+        title: String(wish.title || ''),
+        icon: String(wish.icon || '♡'),
+        saved: Number(wish.saved || 0),
+        target: Number(wish.target || 0),
+        deadline: String(wish.deadline || 'بدون موعد'),
+        owner: String(wish.ownerName || 'العائلة'),
+      }
+    }),
   }
 }
 
 export const addSharedMarketItem = async (householdId: string, user: User, title: string, quantity: string) => {
-  const client = getClient()
-  const { error } = await client.from('shared_market_items').insert({
-    household_id: householdId,
+  await addDoc(collection(db, 'households', householdId, 'marketItems'), {
     title,
     quantity,
-    added_by: user.id,
-    added_by_name: getUserName(user),
+    addedBy: user.uid,
+    addedByName: getUserName(user),
+    checked: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
-  throwOnError(error)
   await insertActivity(householdId, user, 'أضاف عنصرًا', `${title} إلى السوبرماركت`)
 }
 
 export const toggleSharedMarketItem = async (householdId: string, user: User, item: SharedMarketItem) => {
-  const client = getClient()
-  const { error } = await client.from('shared_market_items').update({
+  await updateDoc(doc(db, 'households', householdId, 'marketItems', item.id), {
     checked: !item.checked,
-    updated_at: new Date().toISOString(),
-  }).eq('id', item.id).eq('household_id', householdId)
-  throwOnError(error)
+    updatedAt: serverTimestamp(),
+  })
   await insertActivity(householdId, user, item.checked ? 'أعاد عنصرًا للقائمة' : 'أكمل شراء', item.title)
 }
 
@@ -392,26 +364,27 @@ export const addSharedWish = async (
   user: User,
   input: { title: string; icon: string; target: number; deadline: string },
 ) => {
-  const client = getClient()
-  const { error } = await client.from('shared_wishes').insert({
-    household_id: householdId,
+  await addDoc(collection(db, 'households', householdId, 'wishes'), {
     title: input.title,
     icon: input.icon,
     target: input.target,
-    deadline_label: input.deadline,
-    owner_id: user.id,
-    owner_name: getUserName(user),
-    is_shared: true,
+    saved: 0,
+    deadline: input.deadline,
+    ownerId: user.uid,
+    ownerName: getUserName(user),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
-  throwOnError(error)
   await insertActivity(householdId, user, 'أضاف أمنية مشتركة', input.title)
 }
 
-export const subscribeToSharedData = (householdId: string, onChange: () => void): RealtimeChannel => supabase
-  .channel(`shared-data-${householdId}`)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_market_items', filter: `household_id=eq.${householdId}` }, onChange)
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_wishes', filter: `household_id=eq.${householdId}` }, onChange)
-  .subscribe()
+export const subscribeToSharedData = (householdId: string, onChange: () => void): Unsubscribe => {
+  const unsubscribers = [
+    onSnapshot(collection(db, 'households', householdId, 'marketItems'), onChange),
+    onSnapshot(collection(db, 'households', householdId, 'wishes'), onChange),
+  ]
+  return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
+}
 
 export const demoWorkspace: HouseholdWorkspace = {
   id: 'demo-household',
@@ -421,4 +394,4 @@ export const demoWorkspace: HouseholdWorkspace = {
   activity: initialHouseholdActivity,
 }
 
-export { getUserName, isSupabaseConfigured }
+export { getUserName, isFirebaseConfigured }
