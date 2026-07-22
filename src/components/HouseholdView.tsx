@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import type { User } from '@supabase/supabase-js'
+import { onAuthStateChanged, type User } from 'firebase/auth'
 import {
   accessLabels,
   nextAccessLevel,
@@ -12,7 +12,7 @@ import {
 import {
   demoWorkspace,
   inviteHouseholdMember,
-  isSupabaseConfigured,
+  isFirebaseConfigured,
   loadHouseholdWorkspace,
   signInToRushd,
   signOutFromRushd,
@@ -20,18 +20,18 @@ import {
   subscribeToHousehold,
   updateMemberAccess,
 } from '../lib/householdRepository'
-import { supabase } from '../lib/supabase'
+import { auth } from '../lib/firebase'
 
 export function HouseholdView({ onClose }: { onClose: () => void }) {
-  const [workspace, setWorkspace] = useState<HouseholdWorkspace | null>(isSupabaseConfigured ? null : demoWorkspace)
+  const [workspace, setWorkspace] = useState<HouseholdWorkspace | null>(isFirebaseConfigured ? null : demoWorkspace)
   const [user, setUser] = useState<User | null>(null)
-  const [selectedMemberId, setSelectedMemberId] = useState('asma')
+  const [selectedMemberId, setSelectedMemberId] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [busy, setBusy] = useState(isSupabaseConfigured)
+  const [busy, setBusy] = useState(isFirebaseConfigured)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -51,26 +51,19 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
   }
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return
+    if (!isFirebaseConfigured) return
     let active = true
-
-    void supabase.auth.getSession().then(({ data }) => {
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       if (!active) return
-      setUser(data.session?.user ?? null)
-      setBusy(false)
-    })
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active) return
-      setUser(session?.user ?? null)
+      setUser(nextUser)
       setWorkspace(null)
       setError('')
       setNotice('')
+      setBusy(false)
     })
-
     return () => {
       active = false
-      listener.subscription.unsubscribe()
+      unsubscribe()
     }
   }, [])
 
@@ -89,14 +82,12 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
   }, [user])
 
   useEffect(() => {
-    if (!user || !workspace || !isSupabaseConfigured || !supabase) return
-    const channel = subscribeToHousehold(workspace.id, () => {
+    if (!user || !workspace || !isFirebaseConfigured) return
+    const unsubscribe = subscribeToHousehold(workspace.id, () => {
       void reloadWorkspace(user).catch(() => undefined)
     })
-    return () => {
-      if (channel) void supabase.removeChannel(channel)
-    }
-  }, [user?.id, workspace?.id])
+    return unsubscribe
+  }, [user?.uid, workspace?.id])
 
   const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -109,14 +100,11 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
 
     setBusy(true)
     try {
-      if (authMode === 'signin') {
-        const signedUser = await signInToRushd(email.trim().toLowerCase(), password)
-        setUser(signedUser)
-      } else {
-        const result = await signUpToRushd(name, email.trim().toLowerCase(), password)
-        if (result.session?.user) setUser(result.session.user)
-        else setNotice('تم إنشاء الحساب. افتح رسالة التأكيد في بريدك ثم سجل الدخول.')
-      }
+      const signedUser = authMode === 'signin'
+        ? await signInToRushd(email.trim().toLowerCase(), password)
+        : await signUpToRushd(name, email.trim().toLowerCase(), password)
+      setUser(signedUser)
+      setNotice(authMode === 'signup' ? 'تم إنشاء الحساب وتجهيز مساحة رُشد.' : '')
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'تعذرت المصادقة.')
     } finally {
@@ -130,7 +118,7 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
     setBusy(true)
     setError('')
     try {
-      if (!isSupabaseConfigured) {
+      if (!isFirebaseConfigured) {
         const normalized = inviteEmail.trim().toLowerCase()
         if (workspace.members.some((member) => member.email === normalized)) return
         setWorkspace({
@@ -164,7 +152,7 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
     const next = nextAccessLevel(selectedMember.permissions[module])
     setError('')
     try {
-      if (!isSupabaseConfigured) {
+      if (!isFirebaseConfigured) {
         setWorkspace({
           ...workspace,
           members: workspace.members.map((member) => member.id === selectedMember.id
@@ -194,7 +182,7 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const syncLabel = !isSupabaseConfigured ? 'معاينة بدون خادم' : user && workspace ? 'متصل لحظيًا' : 'بانتظار تسجيل الدخول'
+  const syncLabel = !isFirebaseConfigured ? 'معاينة بدون خادم' : user && workspace ? 'متصل لحظيًا بـ Firebase' : 'بانتظار تسجيل الدخول'
 
   return (
     <motion.section className="household-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -206,7 +194,7 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
           {user && <button type="button" className="signout-button" onClick={logout} disabled={busy}>خروج</button>}
         </header>
 
-        {isSupabaseConfigured && !user && (
+        {isFirebaseConfigured && !user && (
           <section className="household-card auth-card">
             <div className="auth-tabs">
               <button type="button" className={authMode === 'signin' ? 'active' : ''} onClick={() => setAuthMode('signin')}>تسجيل الدخول</button>
@@ -280,7 +268,7 @@ export function HouseholdView({ onClose }: { onClose: () => void }) {
           </>
         )}
 
-        {!isSupabaseConfigured && <section className="supabase-blocker"><strong>المعاينة تعمل، لكن المزامنة غير مفعلة</strong><p>أضف <code>VITE_SUPABASE_URL</code> و<code>VITE_SUPABASE_ANON_KEY</code> في Vercel، ثم نفّذ ملف <code>supabase/migrations/001_households.sql</code>. بعدها تتحول هذه الواجهة تلقائيًا إلى بيانات حقيقية.</p></section>}
+        {!isFirebaseConfigured && <section className="supabase-blocker"><strong>المعاينة تعمل، لكن Firebase غير مفعّل</strong><p>راجع إعدادات مشروع Firebase ثم أعد تحميل التطبيق.</p></section>}
       </motion.div>
     </motion.section>
   )
