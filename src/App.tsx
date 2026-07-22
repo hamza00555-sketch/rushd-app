@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { RushdCharacter } from './components/RushdCharacter'
+import { useSharedModules, type SharedSyncStatus } from './hooks/useSharedModules'
 import { formatSar, getSpentPercentage } from './lib/finance'
 import {
   buildSuggestedBudget,
@@ -8,25 +9,9 @@ import {
   getFinancialSnapshot,
   type BudgetCategory,
 } from './lib/financialEngine'
+import type { SharedMarketItem, SharedWish } from './lib/householdRepository'
 
 type Tab = 'home' | 'month' | 'wishes' | 'market'
-
-type Wish = {
-  id: number
-  title: string
-  icon: string
-  saved: number
-  target: number
-  deadline: string
-}
-
-type MarketItem = {
-  id: number
-  title: string
-  quantity: string
-  owner: 'حمزة' | 'أسماء'
-  checked: boolean
-}
 
 type Transaction = {
   id: number
@@ -37,19 +22,6 @@ type Transaction = {
 }
 
 const initialSalary = 16500
-
-const initialWishes: Wish[] = [
-  { id: 1, title: 'رحلة العائلة', icon: '✈️', saved: 12000, target: 20000, deadline: 'باقي 3 أشهر' },
-  { id: 2, title: 'تأثيث البيت', icon: '🛋️', saved: 18500, target: 35000, deadline: 'باقي 7 أشهر' },
-  { id: 3, title: 'صندوق الطوارئ', icon: '🛡️', saved: 15000, target: 20000, deadline: 'قريب جدًا' },
-]
-
-const initialMarketItems: MarketItem[] = [
-  { id: 1, title: 'حليب', quantity: '2 عبوة', owner: 'أسماء', checked: false },
-  { id: 2, title: 'بيض', quantity: 'طبق كبير', owner: 'حمزة', checked: true },
-  { id: 3, title: 'مناديل مطبخ', quantity: '1 كرتون', owner: 'أسماء', checked: false },
-  { id: 4, title: 'قهوة', quantity: '500 جم', owner: 'حمزة', checked: false },
-]
 
 const initialTransactions: Transaction[] = [
   { id: 1, title: 'إيجار المنزل', amount: 2166, categoryId: 'commitments', date: 'اليوم' },
@@ -63,6 +35,14 @@ const tabMessages: Record<Tab, string> = {
   month: 'غيّر الراتب أو أضف مصروفًا، وأنا أعيد قراءة الخطة فورًا.',
   wishes: 'كل أمنية هنا مرتبطة بخطتك، مو مجرد قائمة أحلام.',
   market: 'القائمة مشتركة، لذلك ما عاد فيه: كنت أحسبك اشتريتها.',
+}
+
+const syncMessage = (status: SharedSyncStatus, error: string) => {
+  if (status === 'synced') return { title: 'متصل لحظيًا', body: 'أي تعديل يظهر لأعضاء البيت مباشرة.' }
+  if (status === 'connecting') return { title: 'جاري المزامنة', body: 'رُشد يحمّل آخر تحديثات البيت.' }
+  if (status === 'signed-out') return { title: 'المزامنة متوقفة', body: 'افتح مساحة العائلة وسجل الدخول لتفعيل المشاركة.' }
+  if (status === 'error') return { title: 'تعذر التحديث', body: error || 'راجع إعداد Supabase وحاول مرة ثانية.' }
+  return { title: 'معاينة الواجهة', body: 'تتحول إلى مزامنة حقيقية فور إضافة مفاتيح Supabase.' }
 }
 
 function ProgressBar({ value, tone = 'default' }: { value: number; tone?: string }) {
@@ -82,14 +62,14 @@ function HomeView({
 }: {
   salary: number
   categories: BudgetCategory[]
-  wishes: Wish[]
+  wishes: SharedWish[]
   pendingMarket: number
   onOpenMonth: () => void
 }) {
   const snapshot = getFinancialSnapshot(salary, categories)
   const signals = getFinancialSignals(salary, categories)
   const nearestWish = [...wishes].sort((a, b) => (b.saved / b.target) - (a.saved / a.target))[0]
-  const wishProgress = getSpentPercentage(nearestWish.saved, nearestWish.target)
+  const wishProgress = nearestWish ? getSpentPercentage(nearestWish.saved, nearestWish.target) : 0
 
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
@@ -124,14 +104,18 @@ function HomeView({
         </div>
       </section>
 
-      <section className="section-block">
-        <div className="section-title"><div><span>الأقرب الآن</span><h2>{nearestWish.title}</h2></div><b>{wishProgress}%</b></div>
-        <div className="goal-focus-row"><span className="goal-art">{nearestWish.icon}</span><div><strong>{formatSar(nearestWish.saved)} من {formatSar(nearestWish.target)} ريال</strong><ProgressBar value={wishProgress}/><small>{nearestWish.deadline}</small></div></div>
-      </section>
+      {nearestWish ? (
+        <section className="section-block">
+          <div className="section-title"><div><span>الأقرب الآن</span><h2>{nearestWish.title}</h2></div><b>{wishProgress}%</b></div>
+          <div className="goal-focus-row"><span className="goal-art">{nearestWish.icon}</span><div><strong>{formatSar(nearestWish.saved)} من {formatSar(nearestWish.target)} ريال</strong><ProgressBar value={wishProgress}/><small>{nearestWish.deadline}</small></div></div>
+        </section>
+      ) : (
+        <section className="section-block empty-module-card"><span>♡</span><div><strong>لا توجد أمنية مشتركة</strong><p>أضف أول أمنية من صفحة أماني رُشد.</p></div></section>
+      )}
 
       <section className="living-summary">
         <motion.span animate={{ rotate: [0, 18, 0], scale: [1, 1.2, 1] }} transition={{ duration: 2.8, repeat: Infinity }}>✦</motion.span>
-        <div><strong>ملخص البيت</strong><p>{pendingMarket} عناصر في السوبرماركت، وخطتك المالية تتحدث تلقائيًا مع كل مصروف جديد.</p></div>
+        <div><strong>ملخص البيت</strong><p>{pendingMarket} عناصر في السوبرماركت، وخطتك المالية الخاصة لا تظهر لأي عضو.</p></div>
       </section>
     </motion.main>
   )
@@ -232,33 +216,38 @@ function MonthView({
   )
 }
 
-function WishesView({ wishes, onAdd }: { wishes: Wish[]; onAdd: () => void }) {
+function WishesView({ wishes, onAdd, syncStatus, syncError }: { wishes: SharedWish[]; onAdd: () => void; syncStatus: SharedSyncStatus; syncError: string }) {
+  const sync = syncMessage(syncStatus, syncError)
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="goal-intro wishes-intro"><span>أماني رُشد</span><h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1><p>كل هدف له مبلغ، تقدم، وموعد تقريبي بدل ما يظل مجرد فكرة.</p></section>
+      <section className="goal-intro wishes-intro"><span>أماني رُشد</span><h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1><p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p></section>
       <div className="goals-list">
+        {wishes.length === 0 && <section className="module-empty-state"><span>♡</span><strong>ما عندكم أماني مشتركة بعد</strong><p>ابدأ بأول أمنية وشاركها مع العائلة.</p></section>}
         {wishes.map((wish, index) => {
           const value = getSpentPercentage(wish.saved, wish.target)
-          return <motion.article className="full-goal-card wish-card" key={wish.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}><span className="goal-emoji">{wish.icon}</span><div><div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div><p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال</p><ProgressBar value={value}/><small>{wish.deadline}</small></div></motion.article>
+          return <motion.article className="full-goal-card wish-card" key={wish.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}><span className="goal-emoji">{wish.icon}</span><div><div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div><p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال · {wish.owner}</p><ProgressBar value={value}/><small>{wish.deadline}</small></div></motion.article>
         })}
       </div>
-      <button type="button" className="primary-button" onClick={onAdd}>＋ إضافة أمنية جديدة</button>
+      <button type="button" className="primary-button" onClick={onAdd}>＋ إضافة أمنية مشتركة</button>
+      <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
     </motion.main>
   )
 }
 
-function MarketView({ items, onToggle, onAdd }: { items: MarketItem[]; onToggle: (id: number) => void; onAdd: () => void }) {
+function MarketView({ items, onToggle, onAdd, syncStatus, syncError }: { items: SharedMarketItem[]; onToggle: (item: SharedMarketItem) => void; onAdd: () => void; syncStatus: SharedSyncStatus; syncError: string }) {
   const checked = items.filter((item) => item.checked).length
   const progress = getSpentPercentage(checked, items.length)
+  const sync = syncMessage(syncStatus, syncError)
 
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="market-hero"><span>السوبرماركت المشترك</span><h1>{items.length - checked} عناصر متبقية</h1><p>القائمة جاهزة للمزامنة بينك وبين أسماء، وكل شخص يعرف مين أضاف كل عنصر.</p><ProgressBar value={progress}/></section>
+      <section className="market-hero"><span>السوبرماركت المشترك</span><h1>{items.length - checked} عناصر متبقية</h1><p>كل عضو يرى التحديث حسب مستوى صلاحيته: عرض فقط أو عرض وتعديل.</p><ProgressBar value={progress}/></section>
       <section className="section-block market-list">
-        {items.map((item, index) => <motion.button type="button" className={`market-row ${item.checked ? 'is-checked' : ''}`} key={item.id} onClick={() => onToggle(item.id)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.07 }}><span className="check-circle">{item.checked ? '✓' : ''}</span><span className="market-copy"><strong>{item.title}</strong><small>{item.quantity} · أضافها {item.owner}</small></span></motion.button>)}
+        {items.length === 0 && <div className="module-empty-state compact"><span>🛒</span><strong>القائمة فاضية</strong><p>أضف أول احتياج للبيت.</p></div>}
+        {items.map((item, index) => <motion.button type="button" className={`market-row ${item.checked ? 'is-checked' : ''}`} key={item.id} onClick={() => onToggle(item)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.07 }}><span className="check-circle">{item.checked ? '✓' : ''}</span><span className="market-copy"><strong>{item.title}</strong><small>{item.quantity} · أضافها {item.owner}</small></span></motion.button>)}
         <button type="button" className="secondary-button" onClick={onAdd}>＋ إضافة عنصر</button>
       </section>
-      <section className="shared-status"><span className="live-dot"/><div><strong>جاهز للربط الحقيقي</strong><p>الواجهة والتدفق مكتملان، وتفعيل Supabase يحتاج بيانات المشروع فقط.</p></div></section>
+      <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
     </motion.main>
   )
 }
@@ -269,13 +258,12 @@ export default function App() {
   const [salaryDraft, setSalaryDraft] = useState(String(initialSalary))
   const [categories, setCategories] = useState(() => buildSuggestedBudget(initialSalary))
   const [transactions, setTransactions] = useState(initialTransactions)
-  const [wishes, setWishes] = useState(initialWishes)
-  const [items, setItems] = useState(initialMarketItems)
   const [message, setMessage] = useState(tabMessages.home)
   const [counter, setCounter] = useState(0)
+  const shared = useSharedModules()
 
   const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' ? 'happy' : 'calm', [tab])
-  const pendingMarket = items.filter((item) => !item.checked).length
+  const pendingMarket = shared.marketItems.filter((item) => !item.checked).length
 
   const changeTab = (next: Tab) => {
     setTab(next)
@@ -302,14 +290,31 @@ export default function App() {
     setMessage(projected > (category?.limit ?? Number.POSITIVE_INFINITY) ? `انتبه: ${category?.title} تجاوزت الميزانية بعد هذا المصروف.` : 'تم تسجيل المصروف وتحديث التحليل فورًا.')
   }
 
-  const addWish = () => {
-    setWishes((current) => [...current, { id: Date.now(), title: 'جهاز جديد', icon: '💻', saved: 0, target: 8000, deadline: 'هدف جديد' }])
-    setMessage('أضفت أمنية جديدة. نموذج التفاصيل الكامل يأتي في تطوير الأماني.')
+  const addWish = async () => {
+    try {
+      await shared.addWish()
+      setMessage(shared.status === 'demo' ? 'أضفت أمنية في المعاينة.' : 'تمت إضافة الأمنية ومزامنتها مع البيت.')
+    } catch (cause: unknown) {
+      setMessage(cause instanceof Error ? cause.message : 'تعذرت إضافة الأمنية.')
+    }
   }
 
-  const addMarketItem = () => {
-    setItems((current) => [...current, { id: Date.now(), title: 'عنصر جديد', quantity: 'حدد الكمية', owner: 'حمزة', checked: false }])
-    setMessage('تمت إضافة العنصر للقائمة المشتركة.')
+  const addMarketItem = async () => {
+    try {
+      await shared.addMarket()
+      setMessage(shared.status === 'demo' ? 'أضفت عنصرًا في المعاينة.' : 'تمت إضافة العنصر ومزامنته مع البيت.')
+    } catch (cause: unknown) {
+      setMessage(cause instanceof Error ? cause.message : 'تعذرت إضافة العنصر.')
+    }
+  }
+
+  const toggleMarketItem = async (item: SharedMarketItem) => {
+    try {
+      await shared.toggleMarket(item)
+      setMessage('تم تحديث حالة العنصر.')
+    } catch (cause: unknown) {
+      setMessage(cause instanceof Error ? cause.message : 'تعذر تحديث العنصر.')
+    }
   }
 
   const pressCharacter = () => {
@@ -317,7 +322,7 @@ export default function App() {
     const messages = [
       `باقي معك ${formatSar(snapshot.remaining)} ريال من راتب هذا الشهر.`,
       snapshot.watch ? `عندك ${snapshot.watch} فئات تحتاج متابعة.` : 'كل ميزانياتك حاليًا في النطاق الآمن.',
-      'أي مصروف جديد يغيّر قراءتي مباشرة، فلا تعتمد على التقدير.',
+      shared.status === 'synced' ? 'بيانات البيت متزامنة الآن، وحسابك المالي الخاص لا يشاركه أحد.' : 'المشاركة تحتاج تسجيل الدخول من زر العائلة.',
     ]
     const next = counter + 1
     setCounter(next)
@@ -328,13 +333,13 @@ export default function App() {
     <div className="app-canvas">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
       <div className="phone-app">
-        <header className="topbar"><div className="profile"><span className="avatar">ح</span><div><small>مساء الخير</small><strong>حمزة</strong></div></div><div className="sprint-badge"><span className="live-dot"/>Sprint 03</div></header>
+        <header className="topbar"><div className="profile"><span className="avatar">ح</span><div><small>مساء الخير</small><strong>حمزة</strong></div></div><div className="sprint-badge"><span className="live-dot"/>Sprint 04</div></header>
         <div className="character-dock"><RushdCharacter mood={mood} size="sm" message={message} interactive onPress={pressCharacter}/></div>
         <AnimatePresence mode="wait">
-          {tab === 'home' && <HomeView key="home" salary={salary} categories={categories} wishes={wishes} pendingMarket={pendingMarket} onOpenMonth={() => changeTab('month')}/>} 
+          {tab === 'home' && <HomeView key="home" salary={salary} categories={categories} wishes={shared.wishes} pendingMarket={pendingMarket} onOpenMonth={() => changeTab('month')}/>} 
           {tab === 'month' && <MonthView key="month" salary={salary} salaryDraft={salaryDraft} setSalaryDraft={setSalaryDraft} categories={categories} transactions={transactions} onRebuild={rebuildPlan} onAddExpense={addExpense}/>} 
-          {tab === 'wishes' && <WishesView key="wishes" wishes={wishes} onAdd={addWish}/>} 
-          {tab === 'market' && <MarketView key="market" items={items} onToggle={(id) => setItems((current) => current.map((item) => item.id === id ? { ...item, checked: !item.checked } : item))} onAdd={addMarketItem}/>} 
+          {tab === 'wishes' && <WishesView key="wishes" wishes={shared.wishes} onAdd={() => void addWish()} syncStatus={shared.status} syncError={shared.error}/>} 
+          {tab === 'market' && <MarketView key="market" items={shared.marketItems} onToggle={(item) => void toggleMarketItem(item)} onAdd={() => void addMarketItem()} syncStatus={shared.status} syncError={shared.error}/>} 
         </AnimatePresence>
         <nav className="bottom-nav sprint-nav sprint03-nav" aria-label="التنقل الرئيسي">
           <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')}><span>⌂</span><small>الرئيسية</small></button>

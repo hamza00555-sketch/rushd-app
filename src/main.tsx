@@ -1,12 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import AppShell from './AppShell'
 import './styles.css'
 import './sprint02.css'
 import './sprint03.css'
+import './sprint04.css'
+import './sprint05.css'
+import './sprint06.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AppShell />
   </StrictMode>,
 )
