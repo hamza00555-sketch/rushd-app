@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import type { User } from 'firebase/auth'
 import { RushdCharacter } from './RushdCharacter'
 import { formatSar } from '../lib/finance'
 import {
@@ -12,15 +13,16 @@ import {
 } from '../lib/promotionEngine'
 import {
   deletePromotionScenario,
-  getPromotionUser,
   loadPromotionScenarios,
   savePromotionScenario,
 } from '../lib/promotionRepository'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { getCurrentMonthKey, loadMonthlyPlanOnce } from '../lib/monthlyPlanRepository'
+import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
+import { useDialog } from '../hooks/useDialog'
 
-export function PromotionSimulator({ onClose }: { onClose: () => void }) {
-  const [currentSalary, setCurrentSalary] = useState('16500')
-  const [newSalary, setNewSalary] = useState('21450')
+export function PromotionSimulator({ onClose, user }: { onClose: () => void; user: User }) {
+  const [currentSalary, setCurrentSalary] = useState('')
+  const [newSalary, setNewSalary] = useState('')
   const [profileId, setProfileId] = useState<PromotionProfileId>('balanced')
   const [savedScenarios, setSavedScenarios] = useState<SavedPromotionScenario[]>([])
   const [scenarioName, setScenarioName] = useState('')
@@ -29,6 +31,8 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
   const [message, setMessage] = useState('اختَر نسبة أو اكتب الراتب الجديد، وأنا أوزع الزيادة بدون تضخم عشوائي.')
   const [error, setError] = useState('')
   const [cloudReady, setCloudReady] = useState(false)
+  const dialogRef = useDialog<HTMLDivElement>(onClose, !saveOpen)
+  const saveDialogRef = useDialog<HTMLFormElement>(() => setSaveOpen(false), saveOpen)
 
   const currentValue = Number(currentSalary) || 0
   const newValue = Number(newSalary) || 0
@@ -40,21 +44,25 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let active = true
-    if (!isSupabaseConfigured) return
-
-    void getPromotionUser()
-      .then(async (user) => {
-        if (!active || !user) return
+    void Promise.all([
+      loadPromotionScenarios(user.uid),
+      loadMonthlyPlanOnce(user.uid, getCurrentMonthKey()),
+    ])
+      .then(([scenarios, monthlyPlan]) => {
+        if (!active) return
+        setSavedScenarios(scenarios)
+        if (monthlyPlan?.salary) {
+          setCurrentSalary(String(monthlyPlan.salary))
+          setNewSalary(String(Math.round(monthlyPlan.salary * 1.2)))
+        }
         setCloudReady(true)
-        const scenarios = await loadPromotionScenarios(user.id)
-        if (active) setSavedScenarios(scenarios)
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'تعذر تحميل السيناريوهات المحفوظة.')
+        if (active) setError(getFirebaseErrorMessage(cause, 'تعذر تحميل السيناريوهات المحفوظة.'))
       })
 
     return () => { active = false }
-  }, [])
+  }, [user.uid])
 
   useEffect(() => {
     setMessage(describePromotion(simulation))
@@ -78,7 +86,10 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
   const saveScenario = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = scenarioName.trim()
-    if (name.length < 2) return
+    if (name.length < 2) {
+      setError('اكتب اسمًا من حرفين على الأقل للسيناريو.')
+      return
+    }
 
     setBusy(true)
     setError('')
@@ -92,25 +103,13 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
         increaseRate: simulation.increaseRate,
       }
 
-      if (isSupabaseConfigured) {
-        const user = await getPromotionUser()
-        if (!user) throw new Error('سجل الدخول من مساحة العائلة حتى تحفظ السيناريو بشكل سحابي.')
-        const saved = await savePromotionScenario(user.id, input)
-        setSavedScenarios((current) => [saved, ...current])
-        setCloudReady(true)
-        setMessage('حفظت السيناريو في حسابك الخاص. لا يظهر لأي عضو في العائلة.')
-      } else {
-        const saved: SavedPromotionScenario = {
-          ...input,
-          id: `session-${Date.now()}`,
-          createdAt: new Date().toISOString(),
-        }
-        setSavedScenarios((current) => [saved, ...current])
-        setMessage('حفظت السيناريو لهذه الجلسة. يتفعّل الحفظ السحابي بعد ربط Supabase.')
-      }
+      const saved = await savePromotionScenario(user.uid, input)
+      setSavedScenarios((current) => [saved, ...current])
+      setCloudReady(true)
+      setMessage('حفظت السيناريو في حسابك الخاص. لا يظهر لأي عضو في العائلة.')
       setSaveOpen(false)
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'تعذر حفظ السيناريو.')
+      setError(getFirebaseErrorMessage(cause, 'تعذر حفظ السيناريو.'))
     } finally {
       setBusy(false)
     }
@@ -127,14 +126,10 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
     setBusy(true)
     setError('')
     try {
-      if (isSupabaseConfigured && !scenario.id.startsWith('session-')) {
-        const user = await getPromotionUser()
-        if (!user) throw new Error('سجل الدخول لحذف السيناريو السحابي.')
-        await deletePromotionScenario(user.id, scenario.id)
-      }
+      await deletePromotionScenario(user.uid, scenario.id)
       setSavedScenarios((current) => current.filter((item) => item.id !== scenario.id))
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'تعذر حذف السيناريو.')
+      setError(getFirebaseErrorMessage(cause, 'تعذر حذف السيناريو.'))
     } finally {
       setBusy(false)
     }
@@ -143,13 +138,13 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
   const maxAfter = Math.max(...simulation.buckets.map((bucket) => bucket.after), 1)
 
   return (
-    <motion.section className="promotion-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div className="promotion-sheet" initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
+    <motion.section className="promotion-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <motion.div ref={dialogRef} className="promotion-sheet" role="dialog" aria-modal="true" aria-labelledby="promotion-title" tabIndex={-1} initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
+        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق محاكي الترقية">×</button>
         <header className="promotion-header">
-          <button type="button" className="promotion-close" onClick={onClose} aria-label="إغلاق">×</button>
           <div className="promotion-title-copy">
             <span>محاكي الترقية</span>
-            <h1>لا تخلي الزيادة تختفي.</h1>
+            <h1 id="promotion-title">لا تخلي الزيادة تختفي.</h1>
             <p>قارن الراتب قبل وبعد، ثم وجّه كل ريال من الزيادة قبل ما يتحول إلى مصروف عادي.</p>
           </div>
           <div className="promotion-character"><RushdCharacter mood="thinking" size="sm" message={message}/></div>
@@ -213,7 +208,7 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
         </section>
 
         <section className="promotion-card saved-scenarios-card">
-          <div className="promotion-section-title"><div><span>04</span><h2>السيناريوهات المحفوظة</h2></div><small>{cloudReady ? 'خاصة ومتزامنة' : 'خاصة بهذه الجلسة'}</small></div>
+          <div className="promotion-section-title"><div><span>04</span><h2>السيناريوهات المحفوظة</h2></div><small>{cloudReady ? 'خاصة ومتزامنة' : 'جاري التحميل'}</small></div>
           {savedScenarios.length === 0 ? (
             <div className="promotion-empty"><span>◎</span><strong>ما حفظت أي سيناريو بعد</strong><p>احفظ أكثر من عرض وظيفي وقارن بينهم بدون ما تعيد الحساب.</p></div>
           ) : (
@@ -233,9 +228,10 @@ export function PromotionSimulator({ onClose }: { onClose: () => void }) {
         <AnimatePresence>
           {saveOpen && (
             <motion.div className="save-scenario-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSaveOpen(false)}>
-              <motion.form className="save-scenario-dialog" initial={{ y: 30, scale: .96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 30, scale: .96 }} onSubmit={saveScenario} onClick={(event) => event.stopPropagation()}>
-                <span>حفظ السيناريو</span><h2>سمّه عشان ترجع له بسهولة</h2>
-                <input autoFocus value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} aria-label="اسم السيناريو"/>
+              <motion.form ref={saveDialogRef} className="save-scenario-dialog" role="dialog" aria-modal="true" aria-labelledby="save-scenario-title" initial={{ y: 30, scale: .96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 30, scale: .96 }} onSubmit={saveScenario} onClick={(event) => event.stopPropagation()}>
+                <span>حفظ السيناريو</span><h2 id="save-scenario-title">سمّه عشان ترجع له بسهولة</h2>
+                <input data-autofocus value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} aria-label="اسم السيناريو"/>
+                {error && <div className="inline-form-error" role="alert">{error}</div>}
                 <div><button type="button" onClick={() => setSaveOpen(false)}>إلغاء</button><button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : 'حفظ'}</button></div>
               </motion.form>
             </motion.div>

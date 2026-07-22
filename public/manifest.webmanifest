@@ -3,9 +3,18 @@
   "short_name": "رُشد",
   "lang": "ar",
   "dir": "rtl",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#fff8f1",
   "theme_color": "#1f1c5b",
-  "description": "مركز القيادة المالي للعائلة"
+  "description": "خطط شهرك وسجّل مصروفاتك واحفظ بياناتك المالية بخصوصية.",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

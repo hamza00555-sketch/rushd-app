@@ -1,16 +1,25 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import AppShell from './AppShell'
+import { AppErrorBoundary } from './components/AppErrorBoundary'
 import './styles.css'
-import './sprint02.css'
-import './sprint03.css'
-import './sprint04.css'
-import './sprint05.css'
-import './sprint06.css'
-import './sprint07.css'
+import './shared-modules.css'
+import './finance.css'
+import './household.css'
+import './promotion.css'
+import './wealth.css'
+import './launch.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppShell />
+    <AppErrorBoundary>
+      <AppShell />
+    </AppErrorBoundary>
   </StrictMode>,
 )
+
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js')
+  })
+}
