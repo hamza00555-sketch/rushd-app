@@ -23,7 +23,7 @@ const mapScenario = (id: string, data: Record<string, unknown>): SavedPromotionS
   createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
 })
 
-export const getPromotionUser = async () => auth.currentUser
+export const getPromotionUser = async () => auth.currentUser ? { id: auth.currentUser.uid } : null
 
 export const loadPromotionScenarios = async (userId: string): Promise<SavedPromotionScenario[]> => {
   const snapshot = await getDocs(query(
