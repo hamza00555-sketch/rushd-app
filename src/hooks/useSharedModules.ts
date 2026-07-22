@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { RealtimeChannel, User } from '@supabase/supabase-js'
+import { onAuthStateChanged, type Unsubscribe, type User } from 'firebase/auth'
 import {
   addSharedMarketItem,
   addSharedWish,
-  isSupabaseConfigured,
+  isFirebaseConfigured,
   loadSharedWorkspaceData,
   subscribeToSharedData,
   toggleSharedMarketItem,
   type SharedMarketItem,
   type SharedWish,
 } from '../lib/householdRepository'
-import { supabase } from '../lib/supabase'
+import { auth } from '../lib/firebase'
 
 export type SharedSyncStatus = 'demo' | 'connecting' | 'signed-out' | 'synced' | 'error'
 
@@ -28,17 +28,17 @@ const demoMarketItems: SharedMarketItem[] = [
 ]
 
 export function useSharedModules() {
-  const [wishes, setWishes] = useState<SharedWish[]>(demoWishes)
-  const [marketItems, setMarketItems] = useState<SharedMarketItem[]>(demoMarketItems)
-  const [status, setStatus] = useState<SharedSyncStatus>(isSupabaseConfigured ? 'connecting' : 'demo')
+  const [wishes, setWishes] = useState<SharedWish[]>(isFirebaseConfigured ? [] : demoWishes)
+  const [marketItems, setMarketItems] = useState<SharedMarketItem[]>(isFirebaseConfigured ? [] : demoMarketItems)
+  const [status, setStatus] = useState<SharedSyncStatus>(isFirebaseConfigured ? 'connecting' : 'demo')
   const [error, setError] = useState('')
   const userRef = useRef<User | null>(null)
   const householdIdRef = useRef<string | null>(null)
-  const channelRef = useRef<RealtimeChannel | null>(null)
+  const realtimeRef = useRef<Unsubscribe | null>(null)
 
   const stopRealtime = useCallback(() => {
-    if (channelRef.current && supabase) supabase.removeChannel(channelRef.current)
-    channelRef.current = null
+    realtimeRef.current?.()
+    realtimeRef.current = null
   }, [])
 
   const refresh = useCallback(async (user: User) => {
@@ -50,8 +50,8 @@ export function useSharedModules() {
     setStatus('synced')
     setError('')
 
-    if (!channelRef.current) {
-      channelRef.current = subscribeToSharedData(data.householdId, () => {
+    if (!realtimeRef.current) {
+      realtimeRef.current = subscribeToSharedData(data.householdId, () => {
         const activeUser = userRef.current
         if (!activeUser) return
         void loadSharedWorkspaceData(activeUser)
@@ -69,10 +69,10 @@ export function useSharedModules() {
   }, [])
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return
+    if (!isFirebaseConfigured) return
     let active = true
 
-    const connect = async (user: User | null) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       stopRealtime()
       userRef.current = user
       householdIdRef.current = null
@@ -85,29 +85,22 @@ export function useSharedModules() {
       }
 
       if (active) setStatus('connecting')
-      try {
-        await refresh(user)
-      } catch (cause: unknown) {
+      void refresh(user).catch((cause: unknown) => {
         if (!active) return
         setStatus('error')
         setError(cause instanceof Error ? cause.message : 'تعذر الاتصال ببيانات البيت.')
-      }
-    }
-
-    void supabase.auth.getSession().then(({ data }) => connect(data.session?.user ?? null))
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      void connect(session?.user ?? null)
+      })
     })
 
     return () => {
       active = false
-      authListener.subscription.unsubscribe()
+      unsubscribeAuth()
       stopRealtime()
     }
   }, [refresh, stopRealtime])
 
   const addMarket = useCallback(async (title = 'عنصر جديد', quantity = 'حدد الكمية') => {
-    if (!isSupabaseConfigured) {
+    if (!isFirebaseConfigured) {
       setMarketItems((current) => [...current, { id: `demo-${Date.now()}`, title, quantity, owner: 'حمزة', checked: false }])
       return
     }
@@ -119,7 +112,7 @@ export function useSharedModules() {
   }, [refresh])
 
   const toggleMarket = useCallback(async (item: SharedMarketItem) => {
-    if (!isSupabaseConfigured) {
+    if (!isFirebaseConfigured) {
       setMarketItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, checked: !candidate.checked } : candidate))
       return
     }
@@ -132,7 +125,7 @@ export function useSharedModules() {
 
   const addWish = useCallback(async () => {
     const wish = { title: 'جهاز جديد', icon: '💻', target: 8000, deadline: 'هدف جديد' }
-    if (!isSupabaseConfigured) {
+    if (!isFirebaseConfigured) {
       setWishes((current) => [...current, { id: `demo-${Date.now()}`, ...wish, saved: 0, owner: 'حمزة' }])
       return
     }
