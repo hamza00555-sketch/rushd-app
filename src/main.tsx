@@ -7,6 +7,7 @@ import './sprint03.css'
 import './sprint04.css'
 import './sprint05.css'
 import './sprint06.css'
+import './sprint07.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
