@@ -1,0 +1,25 @@
+name: Firebase Live Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/firebase.ts'
+      - 'firestore.rules'
+      - 'scripts/firebase-live-smoke.mjs'
+      - '.github/workflows/firebase-live-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  firebase-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --silent
+      - name: Run live Firebase smoke test
+        run: node scripts/firebase-live-smoke.mjs
