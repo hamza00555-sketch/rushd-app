@@ -27,11 +27,13 @@ export function useSharedModules(user: User, marketMonthKey: string) {
   const [wishes, setWishes] = useState<SharedWish[]>([])
   const [marketBudget, setMarketBudget] = useState<SharedMarketBudget | null>(null)
   const [marketExpenses, setMarketExpenses] = useState<SharedMarketExpense[]>([])
+  const [isHouseholdOwner, setIsHouseholdOwner] = useState(false)
   const [permissions, setPermissions] = useState<Record<SharedModule, AccessLevel>>(noAccess)
   const [status, setStatus] = useState<SharedSyncStatus>('connecting')
   const [error, setError] = useState('')
   const householdIdRef = useRef<string | null>(null)
   const marketMonthKeyRef = useRef(marketMonthKey)
+  const isHouseholdOwnerRef = useRef(false)
   const sharedRealtimeRef = useRef<Unsubscribe | null>(null)
   const memberRealtimeRef = useRef<Unsubscribe | null>(null)
   const permissionsRef = useRef(noAccess)
@@ -39,7 +41,9 @@ export function useSharedModules(user: User, marketMonthKey: string) {
 
   const applyData = useCallback((data: SharedWorkspaceData) => {
     householdIdRef.current = data.householdId
+    isHouseholdOwnerRef.current = data.isOwner
     permissionsRef.current = data.permissions
+    setIsHouseholdOwner(data.isOwner)
     setPermissions(data.permissions)
     setWishes(data.wishes)
     setMarketBudget(data.marketBudget)
@@ -105,7 +109,7 @@ export function useSharedModules(user: User, marketMonthKey: string) {
   const saveMarketBudget = useCallback(async (budget: number) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
-    if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
+    if (!isHouseholdOwnerRef.current) throw new Error('رب الأسرة فقط يقدر يحدد ميزانية السوبرماركت.')
     await saveSharedMarketBudget(householdId, user, marketMonthKey, budget)
     await refreshData()
   }, [marketMonthKey, refreshData, user])
@@ -131,6 +135,7 @@ export function useSharedModules(user: User, marketMonthKey: string) {
     wishes,
     marketBudget,
     marketExpenses,
+    isHouseholdOwner,
     permissions,
     status,
     error,

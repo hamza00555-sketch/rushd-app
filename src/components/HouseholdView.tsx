@@ -152,11 +152,14 @@ export function HouseholdView({ onClose, user }: { onClose: () => void; user: Us
                   {sharedModules.map((module) => {
                     const definition = sharedModuleLabels[module]
                     const access = selectedMember.permissions[module]
+                    const accessLabel = module === 'market' && access === 'edit'
+                      ? selectedMember.role === 'owner' ? 'تحديد وخصم' : 'عرض وخصم'
+                      : accessLabels[access]
                     return (
                       <button type="button" className="permission-row" onClick={() => void cyclePermission(module)} disabled={busy || selectedMember.role === 'owner' || !workspace.isOwner} key={module}>
                         <span className="permission-icon">{definition.icon}</span>
                         <span><strong>{definition.title}</strong><small>{definition.description}</small></span>
-                        <i className={`access-pill access-${access}`}>{accessLabels[access]}</i>
+                        <i className={`access-pill access-${access}`}>{accessLabel}</i>
                       </button>
                     )
                   })}

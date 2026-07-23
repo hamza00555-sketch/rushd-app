@@ -365,6 +365,7 @@ function MarketView({
   expenses,
   onSaveBudget,
   onAddExpense,
+  canManageBudget,
   access,
   syncStatus,
   syncError,
@@ -375,6 +376,7 @@ function MarketView({
   expenses: SharedMarketExpense[]
   onSaveBudget: (amount: number) => Promise<void>
   onAddExpense: (amount: number, title: string) => Promise<void>
+  canManageBudget: boolean
   access: AccessLevel
   syncStatus: SharedSyncStatus
   syncError: string
@@ -384,7 +386,7 @@ function MarketView({
   const budgetAmount = budget?.amount ?? 0
   const remaining = budgetAmount - spent
   const progress = getSpentPercentage(spent, budgetAmount)
-  const [budgetFormOpen, setBudgetFormOpen] = useState(!budget)
+  const [budgetFormOpen, setBudgetFormOpen] = useState(canManageBudget && !budget)
   const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.amount) : '')
   const [expenseAmount, setExpenseAmount] = useState('')
   const [expenseTitle, setExpenseTitle] = useState('')
@@ -394,10 +396,10 @@ function MarketView({
 
   useEffect(() => {
     setBudgetDraft(budget ? String(budget.amount) : '')
-    setBudgetFormOpen(!budget)
+    setBudgetFormOpen(canManageBudget && !budget)
     setBudgetError('')
     setExpenseError('')
-  }, [budget?.amount, monthKey])
+  }, [budget?.amount, canManageBudget, monthKey])
 
   const submitBudget = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -450,7 +452,9 @@ function MarketView({
         ) : access === 'none' ? (
           <><h1>هذه الميزانية خاصة</h1><p>مالك البيت يقدر يمنحك صلاحية العرض أو التعديل.</p></>
         ) : !budget ? (
-          <><h1>حدّدوا ميزانية الشهر</h1><p>ضعوا المبلغ المتاح للسوبرماركت، وبعدها كل مشتريات تنخصم منه مباشرة.</p></>
+          canManageBudget
+            ? <><h1>حدّد ميزانية الشهر</h1><p>اختر المبلغ المتاح للسوبرماركت، وبعدها كل مشتريات العائلة تنخصم منه مباشرة.</p></>
+            : <><h1>بانتظار ميزانية رب الأسرة</h1><p>أول ما يحددها ستظهر لك هنا تلقائيًا، وبعدها تقدرين تسجلين المشتريات.</p></>
         ) : (
           <>
             <span className="market-balance-label">{remaining >= 0 ? 'المتبقي هذا الشهر' : 'تجاوزتم الميزانية بـ'}</span>
@@ -460,13 +464,14 @@ function MarketView({
               <div><span>ميزانية الشهر</span><b>{formatMarketSar(budgetAmount)} ريال</b></div>
               <div><span>المصروف حتى الآن</span><b>{formatMarketSar(spent)} ريال</b></div>
             </div>
+            <small className="market-budget-source">{canManageBudget ? 'أنت المسؤول عن تحديد الميزانية' : 'حددها رب الأسرة وتُحدّث عندك تلقائيًا'}</small>
           </>
         )}
       </section>
 
       {access !== 'none' && syncStatus !== 'connecting' && (
         <>
-          {access === 'edit' && budgetFormOpen && (
+          {canManageBudget && budgetFormOpen && (
             <form className="shared-entry-form market-budget-form" onSubmit={submitBudget}>
               <div className="shared-form-heading">
                 <div><strong>{budget ? 'تعديل ميزانية الشهر' : 'ميزانية الشهر'}</strong><small>المبلغ المتاح للسوبرماركت فقط</small></div>
@@ -478,7 +483,7 @@ function MarketView({
             </form>
           )}
 
-          {budget && access === 'edit' && !budgetFormOpen && (
+          {budget && canManageBudget && !budgetFormOpen && (
             <button type="button" className="secondary-button market-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الشهر</button>
           )}
 
@@ -719,6 +724,7 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
               expenses={marketExpenses}
               onSaveBudget={saveMarketBudget}
               onAddExpense={addMarketExpense}
+              canManageBudget={shared.isHouseholdOwner}
               access={shared.permissions.market}
               syncStatus={shared.status}
               syncError={shared.error}

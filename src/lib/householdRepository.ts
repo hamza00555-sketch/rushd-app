@@ -61,6 +61,7 @@ export type SharedMarketExpense = {
 
 export type SharedWorkspaceData = {
   householdId: string
+  isOwner: boolean
   wishes: SharedWish[]
   marketBudget: SharedMarketBudget | null
   marketExpenses: SharedMarketExpense[]
@@ -344,7 +345,8 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
   const membershipSnapshot = await getDoc(doc(db, 'households', householdId, 'members', user.uid))
   if (!membershipSnapshot.exists()) throw new Error('تعذر التحقق من صلاحيات مساحة العائلة.')
   const membership = membershipSnapshot.data()
-  const permissions = (membership.role === 'owner' ? ownerPermissions : membership.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>
+  const isOwner = membership.role === 'owner'
+  const permissions = (isOwner ? ownerPermissions : membership.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>
   const canViewMarket = permissions.market === 'view' || permissions.market === 'edit'
   const canViewWishes = permissions.wishes === 'view' || permissions.wishes === 'edit'
   const [marketSnapshot, wishesSnapshot] = await Promise.all([
@@ -384,6 +386,7 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
 
   return {
     householdId,
+    isOwner,
     permissions,
     marketBudget: marketBudgetData && Number(marketBudgetData.budget) > 0 ? {
       monthKey: marketMonthKey,

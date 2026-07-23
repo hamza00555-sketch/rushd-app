@@ -119,11 +119,25 @@ try {
 
   const memberMarketBudgetReference = doc(memberDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
   const memberMarketExpenseReference = doc(memberDb, 'households', householdId, 'marketItems', 'expense-one')
+  const ownerMarketBudgetReference = doc(ownerDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
   const memberWishReference = doc(memberDb, 'households', householdId, 'wishes', 'trip')
   await assertSucceeds(getDoc(memberMarketBudgetReference))
   await assertSucceeds(getDoc(memberMarketExpenseReference))
-  await assertSucceeds(updateDoc(memberMarketBudgetReference, { budget: 1400.25 }))
+  await assertFails(updateDoc(memberMarketBudgetReference, { budget: 1400.25 }))
   await assertFails(updateDoc(memberMarketBudgetReference, { addedBy: memberId }))
+  await assertSucceeds(updateDoc(ownerMarketBudgetReference, { budget: 1400.25 }))
+  await assertSucceeds(setDoc(doc(ownerDb, 'households', householdId, 'marketItems', 'market-budget-2026-08'), {
+    kind: 'budget',
+    monthKey: '2026-08',
+    budget: 1700,
+    addedBy: ownerId,
+  }))
+  await assertFails(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'member-budget'), {
+    kind: 'budget',
+    monthKey: '2026-08',
+    budget: 1700,
+    addedBy: memberId,
+  }))
   await assertFails(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'forged'), {
     kind: 'expense',
     monthKey,
@@ -140,6 +154,18 @@ try {
   }))
   await assertSucceeds(getDoc(memberWishReference))
   await assertFails(updateDoc(memberWishReference, { saved: 100 }))
+
+  await assertSucceeds(updateDoc(doc(ownerDb, 'households', householdId, 'members', memberId), {
+    permissions: { market: 'view', wishes: 'view', noor: 'none' },
+  }))
+  await assertSucceeds(getDoc(memberMarketBudgetReference))
+  await assertFails(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'view-only-expense'), {
+    kind: 'expense',
+    monthKey,
+    title: 'Blocked groceries',
+    amount: 50,
+    addedBy: memberId,
+  }))
 
   await assertSucceeds(updateDoc(doc(ownerDb, 'households', householdId, 'members', memberId), {
     permissions: { market: 'none', wishes: 'view', noor: 'none' },
