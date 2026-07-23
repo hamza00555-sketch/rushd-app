@@ -50,10 +50,18 @@ try {
       invitedBy: ownerId,
       permissions: { market: 'edit', wishes: 'view', noor: 'none' },
     })
-    await setDoc(doc(adminDb, 'households', householdId, 'marketItems', 'milk'), {
-      title: 'Milk',
+    await setDoc(doc(adminDb, 'households', householdId, 'marketItems', 'market-budget-2026-07'), {
+      kind: 'budget',
+      monthKey,
+      budget: 1500.5,
       addedBy: ownerId,
-      checked: false,
+    })
+    await setDoc(doc(adminDb, 'households', householdId, 'marketItems', 'expense-one'), {
+      kind: 'expense',
+      monthKey,
+      title: 'Weekly groceries',
+      amount: 125.75,
+      addedBy: ownerId,
     })
     await setDoc(doc(adminDb, 'households', householdId, 'wishes', 'trip'), {
       title: 'Trip',
@@ -109,15 +117,26 @@ try {
   }))
   await assertSucceeds(deleteDoc(doc(memberDb, 'householdInvites', memberEmail)))
 
-  const memberMarketReference = doc(memberDb, 'households', householdId, 'marketItems', 'milk')
+  const memberMarketBudgetReference = doc(memberDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
+  const memberMarketExpenseReference = doc(memberDb, 'households', householdId, 'marketItems', 'expense-one')
   const memberWishReference = doc(memberDb, 'households', householdId, 'wishes', 'trip')
-  await assertSucceeds(getDoc(memberMarketReference))
-  await assertSucceeds(updateDoc(memberMarketReference, { checked: true }))
-  await assertFails(updateDoc(memberMarketReference, { addedBy: memberId }))
+  await assertSucceeds(getDoc(memberMarketBudgetReference))
+  await assertSucceeds(getDoc(memberMarketExpenseReference))
+  await assertSucceeds(updateDoc(memberMarketBudgetReference, { budget: 1400.25 }))
+  await assertFails(updateDoc(memberMarketBudgetReference, { addedBy: memberId }))
   await assertFails(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'forged'), {
-    title: 'Forged',
+    kind: 'expense',
+    monthKey,
+    title: 'Forged expense',
+    amount: 99,
     addedBy: ownerId,
-    checked: false,
+  }))
+  await assertSucceeds(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'member-expense'), {
+    kind: 'expense',
+    monthKey,
+    title: 'Member groceries',
+    amount: 85.25,
+    addedBy: memberId,
   }))
   await assertSucceeds(getDoc(memberWishReference))
   await assertFails(updateDoc(memberWishReference, { saved: 100 }))
@@ -125,7 +144,8 @@ try {
   await assertSucceeds(updateDoc(doc(ownerDb, 'households', householdId, 'members', memberId), {
     permissions: { market: 'none', wishes: 'view', noor: 'none' },
   }))
-  await assertFails(getDoc(memberMarketReference))
+  await assertFails(getDoc(memberMarketBudgetReference))
+  await assertFails(getDoc(memberMarketExpenseReference))
   await assertFails(getDoc(doc(memberDb, 'users', ownerId, 'investmentAccounts', 'private-account')))
 
   const persistedPlan = await assertSucceeds(getDoc(planReference))
