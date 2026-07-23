@@ -4,6 +4,7 @@ import App from './App'
 import { AuthScreen } from './components/AuthScreen'
 import { NotFoundScreen } from './components/AppErrorBoundary'
 import { HouseholdView } from './components/HouseholdView'
+import { Icon, type IconName } from './components/Icon'
 import { PromotionSimulator } from './components/PromotionSimulator'
 import { WealthPlanner } from './components/WealthPlanner'
 import { useAuthSession } from './hooks/useAuthSession'
@@ -15,13 +16,13 @@ type LaunchTool = 'wealth' | 'promotion' | 'household'
 
 const toolCards: Array<{
   id: LaunchTool
-  icon: string
+  icon: IconName
   title: string
   description: string
 }> = [
-  { id: 'wealth', icon: '◎', title: 'الثروة والأهداف', description: 'تابع محافظك وأهدافك وتوقعات النمو.' },
-  { id: 'promotion', icon: '↗', title: 'محاكي الترقية', description: 'اختبر زيادة الراتب قبل اتخاذ القرار.' },
-  { id: 'household', icon: '⌂', title: 'مساحة العائلة', description: 'أدر الأعضاء والصلاحيات والمشاركة.' },
+  { id: 'wealth', icon: 'target', title: 'الثروة والأهداف', description: 'تابع محافظك وأهدافك وتوقعات النمو.' },
+  { id: 'promotion', icon: 'trend', title: 'محاكي الترقية', description: 'اختبر زيادة الراتب قبل اتخاذ القرار.' },
+  { id: 'household', icon: 'users', title: 'مساحة العائلة', description: 'أدر الأعضاء والصلاحيات والمشاركة.' },
 ]
 
 function useOnlineStatus() {
@@ -103,7 +104,7 @@ export default function AppShell() {
       <App user={user} displayName={session.displayName} onSaveDisplayName={session.saveDisplayName} onLogout={logout} />
 
       <motion.button type="button" className="launch-tools-trigger" onClick={() => setToolsOpen(true)} aria-label="فتح أدوات رُشد" aria-expanded={toolsOpen} whileTap={{ scale: 0.94 }}>
-        <span aria-hidden="true">✦</span><small>الأدوات</small>
+        <span aria-hidden="true"><Icon name="grid" size={17} /></span><small>الأدوات</small>
       </motion.button>
 
       <AnimatePresence>
@@ -125,16 +126,16 @@ export default function AppShell() {
               <div className="launch-tools-handle" />
               <header>
                 <div><span>اختصارات رُشد</span><h2 id="launch-tools-title">وش تبغى تفتح؟</h2></div>
-                <button type="button" data-autofocus onClick={() => setToolsOpen(false)} aria-label="إغلاق الأدوات">×</button>
+                <button type="button" data-autofocus onClick={() => setToolsOpen(false)} aria-label="إغلاق الأدوات"><Icon name="close" size={20} /></button>
               </header>
               <div className="launch-tools-grid">
                 {toolCards.map((tool) => (
                   <motion.button type="button" className={`launch-tool-card launch-tool-${tool.id}`} key={tool.id} onClick={() => openTool(tool.id)} whileTap={{ scale: 0.98 }}>
-                    <span aria-hidden="true">{tool.icon}</span><div><strong>{tool.title}</strong><small>{tool.description}</small></div><b aria-hidden="true">←</b>
+                    <span aria-hidden="true"><Icon name={tool.icon} size={22} /></span><div><strong>{tool.title}</strong><small>{tool.description}</small></div><b aria-hidden="true"><Icon name="arrowLeft" size={18} /></b>
                   </motion.button>
                 ))}
               </div>
-              <button type="button" className="tools-privacy-link" onClick={() => { setToolsOpen(false); setPrivacyOpen(true) }}>الخصوصية وحماية البيانات</button>
+              <button type="button" className="tools-privacy-link" onClick={() => { setToolsOpen(false); setPrivacyOpen(true) }}><Icon name="shield" size={16} /> الخصوصية وحماية البيانات</button>
             </motion.section>
           </motion.div>
         )}
@@ -142,7 +143,7 @@ export default function AppShell() {
         {privacyOpen && (
           <motion.div className="privacy-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPrivacyOpen(false)}>
             <motion.section ref={privacyRef} className="privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="privacy-title" tabIndex={-1} initial={{ y: 24, scale: .97 }} animate={{ y: 0, scale: 1 }} exit={{ y: 24, scale: .97 }} onClick={(event) => event.stopPropagation()}>
-              <button type="button" data-autofocus onClick={() => setPrivacyOpen(false)} aria-label="إغلاق">×</button>
+              <button type="button" data-autofocus onClick={() => setPrivacyOpen(false)} aria-label="إغلاق"><Icon name="close" size={20} /></button>
               <span>خصوصيتك أولًا</span><h2 id="privacy-title">ما الذي يحفظه رُشد؟</h2>
               <p>يحفظ رُشد الاسم والبريد وخطط الأشهر والمصروفات والاستثمارات داخل Firebase. الراتب والمعاملات والمحافظ والأهداف وسيناريوهات الترقية خاصة بصاحب الحساب فقط.</p>
               <p>بيانات البيت المشتركة تقتصر على ميزانية السوبرماركت والأماني وسجل النشاط، وتظهر حسب صلاحية عرض أو تعديل أو بدون وصول.</p>

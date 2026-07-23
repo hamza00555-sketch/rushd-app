@@ -1,5 +1,5 @@
-const CACHE_NAME = 'rushd-shell-v2'
-const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png']
+const CACHE_NAME = 'rushd-shell-v3'
+const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/brand/rushd-mascot-v2.png']
 
 const warmAppShell = async () => {
   const cache = await caches.open(CACHE_NAME)
