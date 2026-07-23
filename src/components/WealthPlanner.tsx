@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import type { User } from 'firebase/auth'
 import { RushdCharacter } from './RushdCharacter'
 import { formatSar, getSpentPercentage } from '../lib/finance'
 import {
@@ -14,26 +15,14 @@ import {
   addGoalContribution,
   createFinancialGoal,
   createInvestmentAccount,
-  getWealthUserId,
   loadWealthData,
 } from '../lib/wealthRepository'
-import { isSupabaseConfigured } from '../lib/supabase'
+import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
+import { useDialog } from '../hooks/useDialog'
 
-const demoAccounts: InvestmentAccount[] = [
-  { id: 'darahim', name: 'استثمار دراهم', type: 'investment', balance: 18000, monthlyContribution: 2000, annualReturn: 7, icon: '↗' },
-  { id: 'emergency', name: 'احتياطي الطوارئ', type: 'cash', balance: 15000, monthlyContribution: 1000, annualReturn: 0, icon: '🛡️' },
-  { id: 'noor', name: 'محفظة نور', type: 'child', balance: 2400, monthlyContribution: 100, annualReturn: 6, icon: '🧸' },
-]
-
-const demoGoals: FinancialGoal[] = [
-  { id: 'goal-emergency', name: 'إكمال صندوق الطوارئ', target: 20000, saved: 15000, monthlyContribution: 1000, priority: 'high', linkedWish: 'صندوق الطوارئ', icon: '🛡️' },
-  { id: 'goal-travel', name: 'رحلة العائلة', target: 20000, saved: 12000, monthlyContribution: 800, priority: 'medium', linkedWish: 'رحلة العائلة', icon: '✈️' },
-  { id: 'goal-home', name: 'تأثيث البيت', target: 35000, saved: 18500, monthlyContribution: 1200, priority: 'medium', linkedWish: 'تأثيث البيت', icon: '🛋️' },
-]
-
-export function WealthPlanner({ onClose }: { onClose: () => void }) {
-  const [accounts, setAccounts] = useState<InvestmentAccount[]>(demoAccounts)
-  const [goals, setGoals] = useState<FinancialGoal[]>(demoGoals)
+export function WealthPlanner({ onClose, user }: { onClose: () => void; user: User }) {
+  const [accounts, setAccounts] = useState<InvestmentAccount[]>([])
+  const [goals, setGoals] = useState<FinancialGoal[]>([])
   const [tab, setTab] = useState<'overview' | 'accounts' | 'goals'>('overview')
   const [goalFormOpen, setGoalFormOpen] = useState(false)
   const [accountFormOpen, setAccountFormOpen] = useState(false)
@@ -46,6 +35,8 @@ export function WealthPlanner({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [cloudReady, setCloudReady] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const dialogRef = useDialog<HTMLDivElement>(onClose, !goalFormOpen && !accountFormOpen)
 
   const snapshot = useMemo(() => buildWealthSnapshot(accounts, goals), [accounts, goals])
   const projections = useMemo(() => buildProjectionPoints(accounts), [accounts])
@@ -54,46 +45,42 @@ export function WealthPlanner({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let active = true
-    if (!isSupabaseConfigured) return
-    void getWealthUserId()
-      .then(async (userId) => {
-        if (!active || !userId) return
-        const data = await loadWealthData(userId)
+    setLoading(true)
+    void loadWealthData(user.uid)
+      .then((data) => {
         if (!active) return
-        if (data.accounts.length) setAccounts(data.accounts)
-        if (data.goals.length) setGoals(data.goals)
+        setAccounts(data.accounts)
+        setGoals(data.goals)
         setCloudReady(true)
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'تعذر تحميل بيانات الثروة.')
+        if (active) setError(getFirebaseErrorMessage(cause, 'تعذر تحميل بيانات الثروة.'))
       })
+      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [user.uid])
 
   const addAccount = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const balance = Number(accountBalance)
     const monthlyContribution = Number(accountMonthly)
-    if (!accountName.trim() || balance < 0 || monthlyContribution < 0) return
+    if (!accountName.trim() || !Number.isFinite(balance) || balance < 0 || !Number.isFinite(monthlyContribution) || monthlyContribution < 0) {
+      setError('اكتب اسم المحفظة وأرقامًا صحيحة غير سالبة.')
+      return
+    }
     const input = { name: accountName.trim(), type: 'investment' as const, balance, monthlyContribution, annualReturn: 7, icon: '↗' }
     setBusy(true)
     setError('')
     try {
-      if (isSupabaseConfigured) {
-        const userId = await getWealthUserId()
-        if (!userId) throw new Error('سجل الدخول من مساحة العائلة لحفظ الحساب في السحابة.')
-        const saved = await createInvestmentAccount(userId, input)
-        setAccounts((current) => [...current, saved])
-        setCloudReady(true)
-      } else {
-        setAccounts((current) => [...current, { ...input, id: `session-${Date.now()}` }])
-      }
+      const saved = await createInvestmentAccount(user.uid, input)
+      setAccounts((current) => [...current, saved])
+      setCloudReady(true)
       setAccountFormOpen(false)
       setAccountName('')
       setAccountBalance('')
       setAccountMonthly('')
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'تعذر إضافة الحساب.')
+      setError(getFirebaseErrorMessage(cause, 'تعذر إضافة الحساب.'))
     } finally {
       setBusy(false)
     }
@@ -103,58 +90,54 @@ export function WealthPlanner({ onClose }: { onClose: () => void }) {
     event.preventDefault()
     const target = Number(goalTarget)
     const monthlyContribution = Number(goalMonthly)
-    if (!goalName.trim() || target <= 0 || monthlyContribution < 0) return
+    if (!goalName.trim() || !Number.isFinite(target) || target <= 0 || !Number.isFinite(monthlyContribution) || monthlyContribution < 0) {
+      setError('اكتب اسم الهدف ومبلغًا مستهدفًا صحيحًا.')
+      return
+    }
     const input = { name: goalName.trim(), target, saved: 0, monthlyContribution, priority: 'medium' as const, linkedWish: goalName.trim(), icon: '◎' }
     setBusy(true)
     setError('')
     try {
-      if (isSupabaseConfigured) {
-        const userId = await getWealthUserId()
-        if (!userId) throw new Error('سجل الدخول من مساحة العائلة لحفظ الهدف في السحابة.')
-        const saved = await createFinancialGoal(userId, input)
-        setGoals((current) => [...current, saved])
-        setCloudReady(true)
-      } else {
-        setGoals((current) => [...current, { ...input, id: `session-${Date.now()}` }])
-      }
+      const saved = await createFinancialGoal(user.uid, input)
+      setGoals((current) => [...current, saved])
+      setCloudReady(true)
       setGoalFormOpen(false)
       setGoalName('')
       setGoalTarget('')
       setGoalMonthly('')
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'تعذر إضافة الهدف.')
+      setError(getFirebaseErrorMessage(cause, 'تعذر إضافة الهدف.'))
     } finally {
       setBusy(false)
     }
   }
 
   const contribute = async (goal: FinancialGoal, amount: number) => {
+    const contribution = Math.min(amount, Math.max(0, goal.target - goal.saved))
+    if (contribution <= 0) return
     setBusy(true)
     setError('')
     try {
-      if (isSupabaseConfigured && !goal.id.startsWith('session-')) {
-        const userId = await getWealthUserId()
-        if (!userId) throw new Error('سجل الدخول لإضافة المساهمة.')
-        await addGoalContribution(userId, goal, amount)
-      }
-      setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, saved: item.saved + amount } : item))
+      await addGoalContribution(user.uid, goal, contribution)
+      setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, saved: item.saved + contribution } : item))
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'تعذر تسجيل المساهمة.')
+      setError(getFirebaseErrorMessage(cause, 'تعذر تسجيل المساهمة.'))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <motion.section className="wealth-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div className="wealth-sheet" initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
+    <motion.section className="wealth-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <motion.div ref={dialogRef} className="wealth-sheet" role="dialog" aria-modal="true" aria-labelledby="wealth-title" tabIndex={-1} initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
+        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق الثروة والأهداف">×</button>
         <header className="wealth-header">
-          <button type="button" className="wealth-close" onClick={onClose}>×</button>
-          <div><span>الاستثمارات والأهداف</span><h1>خلّ فلوسك تعرف وين رايحة.</h1><p>كل مساهمة شهرية مرتبطة بهدف وموعد واضح، مو مجرد رقم في محفظة.</p></div>
+          <div><span>الاستثمارات والأهداف</span><h1 id="wealth-title">خلّ فلوسك تعرف وين رايحة.</h1><p>كل مساهمة شهرية مرتبطة بهدف وموعد واضح، مو مجرد رقم في محفظة.</p></div>
           <div className="wealth-character"><RushdCharacter mood="happy" size="sm" message={insight}/></div>
         </header>
 
-        {error && <div className="wealth-message">{error}</div>}
+        {error && <div className="wealth-message" role="alert">{error}</div>}
+        {loading && <div className="wealth-loading"><span className="live-dot"/> جاري تحميل بياناتك الخاصة…</div>}
 
         <nav className="wealth-tabs">
           <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>النظرة العامة</button>
@@ -165,6 +148,9 @@ export function WealthPlanner({ onClose }: { onClose: () => void }) {
         <AnimatePresence mode="wait">
           {tab === 'overview' && (
             <motion.main key="overview" className="wealth-content" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+              {!loading && accounts.length === 0 && goals.length === 0 && (
+                <section className="wealth-empty-launch"><span>◎</span><h2>ابدأ من الصفر، على نظافة.</h2><p>أضف أول محفظة أو هدف مالي. ما فيه أي أرقام تجريبية مختلطة بحسابك.</p><div><button type="button" onClick={() => setTab('accounts')}>إضافة محفظة</button><button type="button" onClick={() => setTab('goals')}>إضافة هدف</button></div></section>
+              )}
               <section className="wealth-hero-card">
                 <div><span>إجمالي ما بنيته</span><strong>{formatSar(snapshot.totalBalance)} <small>ريال</small></strong><p>تضيف {formatSar(snapshot.totalMonthlyContribution)} ريال شهريًا بشكل منتظم.</p></div>
                 <div className="wealth-ring"><b>{snapshot.goalsProgress}%</b><small>تقدم الأهداف</small></div>
@@ -193,13 +179,14 @@ export function WealthPlanner({ onClose }: { onClose: () => void }) {
           {tab === 'accounts' && (
             <motion.main key="accounts" className="wealth-content" initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
               <section className="wealth-card">
-                <div className="wealth-section-title"><div><span>محافظك الخاصة</span><h2>{accounts.length} حسابات</h2></div><small>{cloudReady ? 'محفوظة سحابيًا' : 'معاينة محلية'}</small></div>
+                <div className="wealth-section-title"><div><span>محافظك الخاصة</span><h2>{accounts.length} حسابات</h2></div><small>{cloudReady ? 'محفوظة سحابيًا' : 'جاري التحميل'}</small></div>
                 <div className="investment-list">
+                  {accounts.length === 0 && <div className="wealth-list-empty">ما عندك محافظ بعد.</div>}
                   {accounts.map((account) => (
                     <article key={account.id}><span>{account.icon}</span><div><strong>{account.name}</strong><small>مساهمة {formatSar(account.monthlyContribution)} · عائد تقديري {account.annualReturn}%</small></div><b>{formatSar(account.balance)}</b></article>
                   ))}
                 </div>
-                <button className="wealth-primary-button" onClick={() => setAccountFormOpen(true)}>＋ إضافة محفظة</button>
+                <button className="wealth-primary-button" onClick={() => { setError(''); setAccountFormOpen(true) }}>＋ إضافة محفظة</button>
               </section>
             </motion.main>
           )}
@@ -209,26 +196,28 @@ export function WealthPlanner({ onClose }: { onClose: () => void }) {
               <section className="wealth-card">
                 <div className="wealth-section-title"><div><span>أهداف مرتبطة بخطتك</span><h2>{goals.length} أهداف</h2></div><small>{formatSar(snapshot.goalsSaved)} من {formatSar(snapshot.goalsTarget)}</small></div>
                 <div className="financial-goals-list">
+                  {goals.length === 0 && <div className="wealth-list-empty">ما عندك أهداف مالية بعد.</div>}
                   {goals.map((goal) => {
                     const projection = projectGoal(goal)
                     return <article key={goal.id}><span className="goal-plan-icon">{goal.icon}</span><div className="goal-plan-copy"><div><strong>{goal.name}</strong><b>{projection.progress}%</b></div><p>{formatSar(goal.saved)} من {formatSar(goal.target)} · {projection.projectedDate}</p><div className="wealth-progress"><i style={{ width: `${projection.progress}%` }}/></div>{goal.linkedWish && <small>مرتبط بأمنية: {goal.linkedWish}</small>}</div><button disabled={busy || projection.status === 'complete'} onClick={() => void contribute(goal, 250)}>+250</button></article>
                   })}
                 </div>
-                <button className="wealth-primary-button" onClick={() => setGoalFormOpen(true)}>＋ إضافة هدف مالي</button>
+                <button className="wealth-primary-button" onClick={() => { setError(''); setGoalFormOpen(true) }}>＋ إضافة هدف مالي</button>
               </section>
             </motion.main>
           )}
         </AnimatePresence>
 
         <AnimatePresence>
-          {accountFormOpen && <FormDialog title="إضافة محفظة" onClose={() => setAccountFormOpen(false)} onSubmit={addAccount} busy={busy}><input placeholder="اسم المحفظة" value={accountName} onChange={(event) => setAccountName(event.target.value)}/><input inputMode="decimal" placeholder="الرصيد الحالي" value={accountBalance} onChange={(event) => setAccountBalance(event.target.value)}/><input inputMode="decimal" placeholder="المساهمة الشهرية" value={accountMonthly} onChange={(event) => setAccountMonthly(event.target.value)}/></FormDialog>}
-          {goalFormOpen && <FormDialog title="إضافة هدف مالي" onClose={() => setGoalFormOpen(false)} onSubmit={addGoal} busy={busy}><input placeholder="اسم الهدف" value={goalName} onChange={(event) => setGoalName(event.target.value)}/><input inputMode="decimal" placeholder="المبلغ المستهدف" value={goalTarget} onChange={(event) => setGoalTarget(event.target.value)}/><input inputMode="decimal" placeholder="المساهمة الشهرية" value={goalMonthly} onChange={(event) => setGoalMonthly(event.target.value)}/></FormDialog>}
+          {accountFormOpen && <FormDialog title="إضافة محفظة" onClose={() => setAccountFormOpen(false)} onSubmit={addAccount} busy={busy} error={error}><input placeholder="اسم المحفظة" value={accountName} onChange={(event) => setAccountName(event.target.value)}/><input inputMode="decimal" placeholder="الرصيد الحالي" value={accountBalance} onChange={(event) => setAccountBalance(event.target.value)}/><input inputMode="decimal" placeholder="المساهمة الشهرية" value={accountMonthly} onChange={(event) => setAccountMonthly(event.target.value)}/></FormDialog>}
+          {goalFormOpen && <FormDialog title="إضافة هدف مالي" onClose={() => setGoalFormOpen(false)} onSubmit={addGoal} busy={busy} error={error}><input placeholder="اسم الهدف" value={goalName} onChange={(event) => setGoalName(event.target.value)}/><input inputMode="decimal" placeholder="المبلغ المستهدف" value={goalTarget} onChange={(event) => setGoalTarget(event.target.value)}/><input inputMode="decimal" placeholder="المساهمة الشهرية" value={goalMonthly} onChange={(event) => setGoalMonthly(event.target.value)}/></FormDialog>}
         </AnimatePresence>
       </motion.div>
     </motion.section>
   )
 }
 
-function FormDialog({ title, onClose, onSubmit, busy, children }: { title: string; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean; children: React.ReactNode }) {
-  return <motion.div className="wealth-form-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}><motion.form className="wealth-form-dialog" initial={{ y: 30, scale: .96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 30, scale: .96 }} onSubmit={onSubmit} onClick={(event) => event.stopPropagation()}><span>رُشد الخاص</span><h2>{title}</h2>{children}<div><button type="button" onClick={onClose}>إلغاء</button><button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : 'حفظ'}</button></div></motion.form></motion.div>
+function FormDialog({ title, onClose, onSubmit, busy, error, children }: { title: string; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; busy: boolean; error: string; children: React.ReactNode }) {
+  const dialogRef = useDialog<HTMLFormElement>(onClose)
+  return <motion.div className="wealth-form-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}><motion.form ref={dialogRef} className="wealth-form-dialog" role="dialog" aria-modal="true" aria-label={title} initial={{ y: 30, scale: .96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 30, scale: .96 }} onSubmit={onSubmit} onClick={(event) => event.stopPropagation()}><span>رُشد الخاص</span><h2>{title}</h2>{children}{error && <div className="inline-form-error" role="alert">{error}</div>}<div><button type="button" onClick={onClose}>إلغاء</button><button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : 'حفظ'}</button></div></motion.form></motion.div>
 }

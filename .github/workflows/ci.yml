@@ -15,12 +15,14 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install --no-audit --no-fund --silent
+        run: npm ci --no-audit --no-fund --silent
       - name: Build application
         shell: bash
         run: |
           set -o pipefail
           npm run build 2>&1 | tee build-output.log
+      - name: Verify Firestore privacy rules
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project demo-rushd "node scripts/firestore-rules-test.mjs"
       - name: Upload build output
         if: always()
         uses: actions/upload-artifact@v4

@@ -23,13 +23,13 @@ body { overscroll-behavior: none; }
 button { font: inherit; }
 button:focus-visible { outline: 3px solid rgba(91,87,214,.28); outline-offset: 3px; }
 
-.app-canvas { min-height: 100vh; background: radial-gradient(circle at 90% 5%, rgba(255,196,157,.36), transparent 30%), radial-gradient(circle at 0 60%, rgba(167,159,233,.24), transparent 30%), #f8f3ec; position: relative; overflow: hidden; }
+.app-canvas { min-height: 100dvh; background: radial-gradient(circle at 90% 5%, rgba(255,196,157,.36), transparent 30%), radial-gradient(circle at 0 60%, rgba(167,159,233,.24), transparent 30%), #f8f3ec; position: relative; overflow: hidden; }
 .ambient { position: fixed; border-radius: 50%; filter: blur(60px); opacity: .35; pointer-events: none; animation: drift 13s ease-in-out infinite alternate; }
 .ambient-one { width: 280px; height: 280px; background: #a79fe9; top: -130px; left: -90px; }
 .ambient-two { width: 230px; height: 230px; background: #ffc49d; bottom: 40px; right: -100px; animation-delay: -5s; }
 @keyframes drift { to { transform: translate3d(30px, 35px, 0) scale(1.08); } }
 
-.phone-app { min-height: 100vh; max-width: 520px; margin: 0 auto; position: relative; padding: env(safe-area-inset-top) 18px calc(98px + env(safe-area-inset-bottom)); }
+.phone-app { min-height: 100dvh; max-width: 520px; margin: 0 auto; position: relative; padding: env(safe-area-inset-top) 18px calc(98px + env(safe-area-inset-bottom)); }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 15; background: linear-gradient(to bottom, rgba(248,243,236,.96) 70%, rgba(248,243,236,0)); backdrop-filter: blur(12px); }
 .profile { display: flex; align-items: center; gap: 10px; }
 .avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 16px; color: white; background: linear-gradient(145deg, var(--ink), var(--violet)); box-shadow: 0 8px 20px rgba(31,28,91,.18); font-weight: 800; }

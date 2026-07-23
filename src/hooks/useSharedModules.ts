@@ -1,144 +1,129 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { onAuthStateChanged, type Unsubscribe, type User } from 'firebase/auth'
+import type { Unsubscribe, User } from 'firebase/auth'
 import {
   addSharedMarketItem,
   addSharedWish,
-  isFirebaseConfigured,
   loadSharedWorkspaceData,
+  subscribeToMemberAccess,
   subscribeToSharedData,
   toggleSharedMarketItem,
   type SharedMarketItem,
   type SharedWish,
+  type SharedWorkspaceData,
 } from '../lib/householdRepository'
-import { auth } from '../lib/firebase'
+import type { AccessLevel, SharedModule } from '../lib/household'
+import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
 
-export type SharedSyncStatus = 'demo' | 'connecting' | 'signed-out' | 'synced' | 'error'
+export type SharedSyncStatus = 'connecting' | 'synced' | 'error'
 
-const demoWishes: SharedWish[] = [
-  { id: 'wish-trip', title: 'رحلة العائلة', icon: '✈️', saved: 12000, target: 20000, deadline: 'باقي 3 أشهر', owner: 'العائلة' },
-  { id: 'wish-home', title: 'تأثيث البيت', icon: '🛋️', saved: 18500, target: 35000, deadline: 'باقي 7 أشهر', owner: 'حمزة' },
-  { id: 'wish-emergency', title: 'صندوق الطوارئ', icon: '🛡️', saved: 15000, target: 20000, deadline: 'قريب جدًا', owner: 'حمزة' },
-]
+const noAccess: Record<SharedModule, AccessLevel> = {
+  market: 'none',
+  wishes: 'none',
+  noor: 'none',
+}
 
-const demoMarketItems: SharedMarketItem[] = [
-  { id: 'market-milk', title: 'حليب', quantity: '2 عبوة', owner: 'أسماء', checked: false },
-  { id: 'market-eggs', title: 'بيض', quantity: 'طبق كبير', owner: 'حمزة', checked: true },
-  { id: 'market-tissues', title: 'مناديل مطبخ', quantity: '1 كرتون', owner: 'أسماء', checked: false },
-  { id: 'market-coffee', title: 'قهوة', quantity: '500 جم', owner: 'حمزة', checked: false },
-]
-
-export function useSharedModules() {
-  const [wishes, setWishes] = useState<SharedWish[]>(isFirebaseConfigured ? [] : demoWishes)
-  const [marketItems, setMarketItems] = useState<SharedMarketItem[]>(isFirebaseConfigured ? [] : demoMarketItems)
-  const [status, setStatus] = useState<SharedSyncStatus>(isFirebaseConfigured ? 'connecting' : 'demo')
+export function useSharedModules(user: User) {
+  const [wishes, setWishes] = useState<SharedWish[]>([])
+  const [marketItems, setMarketItems] = useState<SharedMarketItem[]>([])
+  const [permissions, setPermissions] = useState<Record<SharedModule, AccessLevel>>(noAccess)
+  const [status, setStatus] = useState<SharedSyncStatus>('connecting')
   const [error, setError] = useState('')
-  const userRef = useRef<User | null>(null)
   const householdIdRef = useRef<string | null>(null)
-  const realtimeRef = useRef<Unsubscribe | null>(null)
+  const sharedRealtimeRef = useRef<Unsubscribe | null>(null)
+  const memberRealtimeRef = useRef<Unsubscribe | null>(null)
+  const permissionsRef = useRef(noAccess)
 
-  const stopRealtime = useCallback(() => {
-    realtimeRef.current?.()
-    realtimeRef.current = null
-  }, [])
-
-  const refresh = useCallback(async (user: User) => {
-    const data = await loadSharedWorkspaceData(user)
-    userRef.current = user
+  const applyData = useCallback((data: SharedWorkspaceData) => {
     householdIdRef.current = data.householdId
+    permissionsRef.current = data.permissions
+    setPermissions(data.permissions)
     setWishes(data.wishes)
     setMarketItems(data.marketItems)
     setStatus('synced')
     setError('')
-
-    if (!realtimeRef.current) {
-      realtimeRef.current = subscribeToSharedData(data.householdId, () => {
-        const activeUser = userRef.current
-        if (!activeUser) return
-        void loadSharedWorkspaceData(activeUser)
-          .then((next) => {
-            setWishes(next.wishes)
-            setMarketItems(next.marketItems)
-            setStatus('synced')
-          })
-          .catch((cause: unknown) => {
-            setStatus('error')
-            setError(cause instanceof Error ? cause.message : 'تعذر تحديث البيانات المشتركة.')
-          })
-      })
-    }
   }, [])
 
+  const fail = useCallback((cause: unknown) => {
+    setStatus('error')
+    setError(getFirebaseErrorMessage(cause, 'تعذر تحديث بيانات البيت.'))
+  }, [])
+
+  const refreshData = useCallback(async () => {
+    const data = await loadSharedWorkspaceData(user)
+    applyData(data)
+    return data
+  }, [applyData, user])
+
+  const connectSharedRealtime = useCallback((data: SharedWorkspaceData) => {
+    sharedRealtimeRef.current?.()
+    sharedRealtimeRef.current = subscribeToSharedData(data.householdId, data.permissions, () => {
+      void refreshData().catch(fail)
+    }, fail)
+  }, [fail, refreshData])
+
   useEffect(() => {
-    if (!isFirebaseConfigured) return
     let active = true
+    setStatus('connecting')
+    setError('')
+    setWishes([])
+    setMarketItems([])
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      stopRealtime()
-      userRef.current = user
-      householdIdRef.current = null
-      if (!user) {
+    void refreshData()
+      .then((data) => {
         if (!active) return
-        setStatus('signed-out')
-        setWishes([])
-        setMarketItems([])
-        return
-      }
-
-      if (active) setStatus('connecting')
-      void refresh(user).catch((cause: unknown) => {
-        if (!active) return
-        setStatus('error')
-        setError(cause instanceof Error ? cause.message : 'تعذر الاتصال ببيانات البيت.')
+        connectSharedRealtime(data)
+        let firstMemberSnapshot = true
+        memberRealtimeRef.current = subscribeToMemberAccess(data.householdId, user.uid, () => {
+          if (firstMemberSnapshot) {
+            firstMemberSnapshot = false
+            return
+          }
+          void refreshData().then((nextData) => {
+            if (!active) return
+            connectSharedRealtime(nextData)
+          }).catch(fail)
+        }, fail)
       })
-    })
+      .catch(fail)
 
     return () => {
       active = false
-      unsubscribeAuth()
-      stopRealtime()
+      sharedRealtimeRef.current?.()
+      memberRealtimeRef.current?.()
+      sharedRealtimeRef.current = null
+      memberRealtimeRef.current = null
+      householdIdRef.current = null
     }
-  }, [refresh, stopRealtime])
+  }, [connectSharedRealtime, fail, refreshData, user.uid])
 
-  const addMarket = useCallback(async (title = 'عنصر جديد', quantity = 'حدد الكمية') => {
-    if (!isFirebaseConfigured) {
-      setMarketItems((current) => [...current, { id: `demo-${Date.now()}`, title, quantity, owner: 'حمزة', checked: false }])
-      return
-    }
-    const user = userRef.current
+  const addMarket = useCallback(async (title: string, quantity: string) => {
     const householdId = householdIdRef.current
-    if (!user || !householdId) throw new Error('سجل الدخول من مساحة العائلة أولًا.')
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
     await addSharedMarketItem(householdId, user, title, quantity)
-    await refresh(user)
-  }, [refresh])
+    await refreshData()
+  }, [refreshData, user])
 
   const toggleMarket = useCallback(async (item: SharedMarketItem) => {
-    if (!isFirebaseConfigured) {
-      setMarketItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, checked: !candidate.checked } : candidate))
-      return
-    }
-    const user = userRef.current
     const householdId = householdIdRef.current
-    if (!user || !householdId) throw new Error('سجل الدخول من مساحة العائلة أولًا.')
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
     await toggleSharedMarketItem(householdId, user, item)
-    await refresh(user)
-  }, [refresh])
+    await refreshData()
+  }, [refreshData, user])
 
-  const addWish = useCallback(async () => {
-    const wish = { title: 'جهاز جديد', icon: '💻', target: 8000, deadline: 'هدف جديد' }
-    if (!isFirebaseConfigured) {
-      setWishes((current) => [...current, { id: `demo-${Date.now()}`, ...wish, saved: 0, owner: 'حمزة' }])
-      return
-    }
-    const user = userRef.current
+  const addWish = useCallback(async (input: { title: string; icon: string; target: number; deadline: string }) => {
     const householdId = householdIdRef.current
-    if (!user || !householdId) throw new Error('سجل الدخول من مساحة العائلة أولًا.')
-    await addSharedWish(householdId, user, wish)
-    await refresh(user)
-  }, [refresh])
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (permissionsRef.current.wishes !== 'edit') throw new Error('صلاحيتك في الأماني للعرض فقط.')
+    await addSharedWish(householdId, user, input)
+    await refreshData()
+  }, [refreshData, user])
 
   return {
     wishes,
     marketItems,
+    permissions,
     status,
     error,
     addMarket,

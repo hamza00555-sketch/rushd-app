@@ -3,15 +3,14 @@ import {
   collection,
   doc,
   getDocs,
+  increment,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { auth, db, isFirebaseConfigured } from './firebase'
+import { db } from './firebase'
 import type { FinancialGoal, InvestmentAccount } from './wealthEngine'
-
-export const getWealthUserId = async () => auth.currentUser?.uid ?? null
 
 export const loadWealthData = async (userId: string) => {
   const [accountsSnapshot, goalsSnapshot] = await Promise.all([
@@ -69,9 +68,7 @@ export const createFinancialGoal = async (userId: string, goal: Omit<FinancialGo
 
 export const addGoalContribution = async (userId: string, goal: FinancialGoal, amount: number) => {
   await updateDoc(doc(db, 'users', userId, 'financialGoals', goal.id), {
-    saved: goal.saved + amount,
+    saved: increment(amount),
     updatedAt: serverTimestamp(),
   })
 }
-
-export { isFirebaseConfigured }

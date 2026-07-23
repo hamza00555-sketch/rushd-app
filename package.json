@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test:rules": "npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project demo-rushd \"node scripts/firestore-rules-test.mjs\"",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
@@ -17,6 +18,7 @@
     "react-router-dom": "^7.8.2"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",

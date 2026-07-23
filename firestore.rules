@@ -45,6 +45,25 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/householdInvites/$(request.auth.token.email)).data.householdId == householdId;
     }
 
+    function matchingInvite(householdId) {
+      return get(/databases/$(database)/documents/householdInvites/$(request.auth.token.email)).data;
+    }
+
+    function validMonthlyPlan() {
+      return request.resource.data.salary is number
+        && request.resource.data.salary > 0
+        && request.resource.data.categories is list;
+    }
+
+    function validTransaction() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.categoryId is string
+        && request.resource.data.categoryId.size() > 0;
+    }
+
     match /users/{userId} {
       allow create, read, update, delete: if isSelf(userId);
 
@@ -59,17 +78,35 @@ service cloud.firestore {
       match /financialGoals/{goalId} {
         allow read, write: if isSelf(userId);
       }
+
+      match /monthlyPlans/{monthId} {
+        allow read, delete: if isSelf(userId);
+        allow create, update: if isSelf(userId) && validMonthlyPlan();
+
+        match /transactions/{transactionId} {
+          allow read, delete: if isSelf(userId);
+          allow create, update: if isSelf(userId) && validTransaction();
+        }
+      }
     }
 
     match /households/{householdId} {
-      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.name is string;
       allow read: if isHouseholdOwner(householdId) || isHouseholdMember(householdId);
       allow update, delete: if isHouseholdOwner(householdId);
 
       match /members/{memberId} {
         allow read: if isHouseholdOwner(householdId) || isHouseholdMember(householdId);
         allow create: if isHouseholdOwner(householdId)
-          || (memberId == request.auth.uid && hasMatchingInvite(householdId));
+          || (memberId == request.auth.uid
+            && hasMatchingInvite(householdId)
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.email == request.auth.token.email
+            && request.resource.data.role == 'member'
+            && request.resource.data.status == 'active'
+            && request.resource.data.permissions == matchingInvite(householdId).permissions);
         allow update, delete: if isHouseholdOwner(householdId);
       }
 
@@ -82,12 +119,20 @@ service cloud.firestore {
 
       match /marketItems/{itemId} {
         allow read: if canViewModule(householdId, 'market');
-        allow create, update, delete: if canEditModule(householdId, 'market');
+        allow create: if canEditModule(householdId, 'market')
+          && request.resource.data.addedBy == request.auth.uid;
+        allow update: if canEditModule(householdId, 'market')
+          && request.resource.data.addedBy == resource.data.addedBy;
+        allow delete: if canEditModule(householdId, 'market');
       }
 
       match /wishes/{wishId} {
         allow read: if canViewModule(householdId, 'wishes');
-        allow create, update, delete: if canEditModule(householdId, 'wishes');
+        allow create: if canEditModule(householdId, 'wishes')
+          && request.resource.data.ownerId == request.auth.uid;
+        allow update: if canEditModule(householdId, 'wishes')
+          && request.resource.data.ownerId == resource.data.ownerId;
+        allow delete: if canEditModule(householdId, 'wishes');
       }
     }
 
@@ -99,7 +144,8 @@ service cloud.firestore {
       allow read: if signedIn()
         && (isHouseholdOwner(resource.data.householdId)
           || request.auth.token.email == resource.data.email);
-      allow update, delete: if signedIn()
+      allow update: if signedIn() && isHouseholdOwner(resource.data.householdId);
+      allow delete: if signedIn()
         && (isHouseholdOwner(resource.data.householdId)
           || request.auth.token.email == resource.data.email);
     }

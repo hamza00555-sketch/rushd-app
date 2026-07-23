@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'src/lib/firebase.ts'
+      - 'src/lib/monthlyPlanRepository.ts'
       - 'firestore.rules'
       - 'scripts/firebase-live-smoke.mjs'
       - '.github/workflows/firebase-live-smoke.yml'
@@ -20,6 +21,6 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install --no-audit --no-fund --silent
+        run: npm ci --no-audit --no-fund --silent
       - name: Run live Firebase smoke test
         run: node scripts/firebase-live-smoke.mjs

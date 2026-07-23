@@ -26,16 +26,13 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import {
-  initialHouseholdActivity,
-  initialHouseholdMembers,
-  sharedModules,
   type AccessLevel,
   type HouseholdActivity,
   type HouseholdMember,
   type HouseholdWorkspace,
   type SharedModule,
 } from './household'
-import { auth, db, isFirebaseConfigured } from './firebase'
+import { auth, authPersistenceReady, db } from './firebase'
 
 export type SharedWish = {
   id: string
@@ -59,6 +56,7 @@ export type SharedWorkspaceData = {
   householdId: string
   wishes: SharedWish[]
   marketItems: SharedMarketItem[]
+  permissions: Record<SharedModule, AccessLevel>
 }
 
 const ownerPermissions: Record<SharedModule, AccessLevel> = {
@@ -108,11 +106,13 @@ const memberFromSnapshot = (snapshot: QueryDocumentSnapshot<DocumentData>): Hous
 }
 
 export const signInToRushd = async (email: string, password: string) => {
+  await authPersistenceReady
   const credential = await signInWithEmailAndPassword(auth, normalizeEmail(email), password)
   return credential.user
 }
 
 export const signUpToRushd = async (name: string, email: string, password: string) => {
+  await authPersistenceReady
   const credential = await createUserWithEmailAndPassword(auth, normalizeEmail(email), password)
   const displayName = name.trim() || normalizeEmail(email).split('@')[0]
   await updateProfile(credential.user, { displayName })
@@ -124,7 +124,29 @@ export const signUpToRushd = async (name: string, email: string, password: strin
   return credential.user
 }
 
-export const signOutFromRushd = async () => signOut(auth)
+export const signOutFromRushd = async () => {
+  await authPersistenceReady
+  return signOut(auth)
+}
+
+export const loadRushdProfile = async (user: User) => {
+  const snapshot = await getDoc(doc(db, 'users', user.uid))
+  const data = snapshot.exists() ? snapshot.data() : null
+  const displayName = String(data?.displayName || user.displayName || user.email?.split('@')[0] || 'عضو رُشد')
+  return { displayName }
+}
+
+export const updateRushdProfile = async (user: User, displayNameInput: string) => {
+  const displayName = displayNameInput.trim()
+  if (displayName.length < 2) throw new Error('اكتب اسمًا من حرفين على الأقل.')
+  await updateProfile(user, { displayName })
+  await setDoc(doc(db, 'users', user.uid), {
+    displayName,
+    email: normalizeEmail(user.email || ''),
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
+  return displayName
+}
 
 const restoreOwnerMembership = async (user: User, householdId: string) => {
   const householdSnapshot = await getDoc(doc(db, 'households', householdId))
@@ -306,14 +328,21 @@ export const subscribeToHousehold = (householdId: string, onChange: () => void):
 
 export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspaceData> => {
   const householdId = await ensureHousehold(user)
+  const membershipSnapshot = await getDoc(doc(db, 'households', householdId, 'members', user.uid))
+  if (!membershipSnapshot.exists()) throw new Error('تعذر التحقق من صلاحيات مساحة العائلة.')
+  const membership = membershipSnapshot.data()
+  const permissions = (membership.role === 'owner' ? ownerPermissions : membership.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>
+  const canViewMarket = permissions.market === 'view' || permissions.market === 'edit'
+  const canViewWishes = permissions.wishes === 'view' || permissions.wishes === 'edit'
   const [marketSnapshot, wishesSnapshot] = await Promise.all([
-    getDocs(query(collection(db, 'households', householdId, 'marketItems'), orderBy('createdAt', 'asc'))),
-    getDocs(query(collection(db, 'households', householdId, 'wishes'), orderBy('createdAt', 'asc'))),
+    canViewMarket ? getDocs(query(collection(db, 'households', householdId, 'marketItems'), orderBy('createdAt', 'asc'))) : null,
+    canViewWishes ? getDocs(query(collection(db, 'households', householdId, 'wishes'), orderBy('createdAt', 'asc'))) : null,
   ])
 
   return {
     householdId,
-    marketItems: marketSnapshot.docs.map((snapshot) => {
+    permissions,
+    marketItems: (marketSnapshot?.docs ?? []).map((snapshot) => {
       const item = snapshot.data()
       return {
         id: snapshot.id,
@@ -323,7 +352,7 @@ export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspa
         checked: Boolean(item.checked),
       }
     }),
-    wishes: wishesSnapshot.docs.map((snapshot) => {
+    wishes: (wishesSnapshot?.docs ?? []).map((snapshot) => {
       const wish = snapshot.data()
       return {
         id: snapshot.id,
@@ -378,20 +407,25 @@ export const addSharedWish = async (
   await insertActivity(householdId, user, 'أضاف أمنية مشتركة', input.title)
 }
 
-export const subscribeToSharedData = (householdId: string, onChange: () => void): Unsubscribe => {
-  const unsubscribers = [
-    onSnapshot(collection(db, 'households', householdId, 'marketItems'), onChange),
-    onSnapshot(collection(db, 'households', householdId, 'wishes'), onChange),
-  ]
+export const subscribeToSharedData = (
+  householdId: string,
+  permissions: Record<SharedModule, AccessLevel>,
+  onChange: () => void,
+  onError?: (cause: unknown) => void,
+): Unsubscribe => {
+  const unsubscribers: Unsubscribe[] = []
+  if (permissions.market !== 'none') {
+    unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'marketItems'), onChange, onError))
+  }
+  if (permissions.wishes !== 'none') {
+    unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'wishes'), onChange, onError))
+  }
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
 }
 
-export const demoWorkspace: HouseholdWorkspace = {
-  id: 'demo-household',
-  name: 'بيت حمزة',
-  isOwner: true,
-  members: initialHouseholdMembers,
-  activity: initialHouseholdActivity,
-}
-
-export { getUserName, isFirebaseConfigured }
+export const subscribeToMemberAccess = (
+  householdId: string,
+  userId: string,
+  onChange: () => void,
+  onError?: (cause: unknown) => void,
+) => onSnapshot(doc(db, 'households', householdId, 'members', userId), onChange, onError)

@@ -47,30 +47,3 @@ export const nextAccessLevel = (current: AccessLevel): AccessLevel => {
   if (current === 'view') return 'edit'
   return 'none'
 }
-
-export const initialHouseholdMembers: HouseholdMember[] = [
-  {
-    id: 'hamza',
-    name: 'حمزة',
-    initials: 'ح',
-    email: 'owner@rushd.app',
-    role: 'owner',
-    status: 'active',
-    permissions: { market: 'edit', wishes: 'edit', noor: 'edit' },
-  },
-  {
-    id: 'asma',
-    name: 'أسماء',
-    initials: 'أ',
-    email: 'asma@rushd.app',
-    role: 'member',
-    status: 'active',
-    permissions: { market: 'edit', wishes: 'edit', noor: 'edit' },
-  },
-]
-
-export const initialHouseholdActivity: HouseholdActivity[] = [
-  { id: 1, actor: 'أسماء', action: 'أضافت عنصرًا', detail: 'حليب إلى قائمة السوبرماركت', time: 'منذ 8 دقائق', icon: '🛒' },
-  { id: 2, actor: 'حمزة', action: 'عدّل صلاحية', detail: 'فعّل الوصول إلى أماني رُشد', time: 'اليوم، 10:42 م', icon: '🔐' },
-  { id: 3, actor: 'أسماء', action: 'أكملت شراء', detail: 'مناديل المطبخ', time: 'أمس', icon: '✓' },
-]

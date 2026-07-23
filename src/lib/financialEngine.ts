@@ -16,10 +16,10 @@ export type FinancialSignal = {
 }
 
 const categoryBlueprints = [
-  { id: 'needs', title: 'الاحتياجات الأساسية', icon: '🏠', ratio: 0.42, tone: 'violet' as const, sampleUsage: 0.73 },
-  { id: 'commitments', title: 'الالتزامات', icon: '📌', ratio: 0.23, tone: 'lavender' as const, sampleUsage: 0.83 },
-  { id: 'future', title: 'الاستثمار والأمان', icon: '🛡️', ratio: 0.22, tone: 'apricot' as const, sampleUsage: 0.55 },
-  { id: 'flex', title: 'الحياة المرنة', icon: '☕', ratio: 0.13, tone: 'coral' as const, sampleUsage: 0.62 },
+  { id: 'needs', title: 'الاحتياجات الأساسية', icon: '🏠', ratio: 0.42, tone: 'violet' as const },
+  { id: 'commitments', title: 'الالتزامات', icon: '📌', ratio: 0.23, tone: 'lavender' as const },
+  { id: 'future', title: 'الاستثمار والأمان', icon: '🛡️', ratio: 0.22, tone: 'apricot' as const },
+  { id: 'flex', title: 'الحياة المرنة', icon: '☕', ratio: 0.13, tone: 'coral' as const },
 ]
 
 export const buildSuggestedBudget = (salary: number, current?: BudgetCategory[]) => {
@@ -36,7 +36,7 @@ export const buildSuggestedBudget = (salary: number, current?: BudgetCategory[])
       title: blueprint.title,
       icon: blueprint.icon,
       limit,
-      spent: previous?.spent ?? Math.round(limit * blueprint.sampleUsage),
+      spent: previous?.spent ?? 0,
       tone: blueprint.tone,
     }
   })

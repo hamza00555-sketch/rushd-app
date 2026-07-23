@@ -9,7 +9,7 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore'
-import { auth, db, isFirebaseConfigured } from './firebase'
+import { db } from './firebase'
 import type { PromotionProfileId, SavedPromotionScenario } from './promotionEngine'
 
 const mapScenario = (id: string, data: Record<string, unknown>): SavedPromotionScenario => ({
@@ -22,8 +22,6 @@ const mapScenario = (id: string, data: Record<string, unknown>): SavedPromotionS
   increaseRate: Number(data.increaseRate || 0),
   createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
 })
-
-export const getPromotionUser = async () => auth.currentUser ? { id: auth.currentUser.uid } : null
 
 export const loadPromotionScenarios = async (userId: string): Promise<SavedPromotionScenario[]> => {
   const snapshot = await getDocs(query(
@@ -51,5 +49,3 @@ export const savePromotionScenario = async (
 export const deletePromotionScenario = async (userId: string, scenarioId: string) => {
   await deleteDoc(doc(db, 'users', userId, 'promotionScenarios', scenarioId))
 }
-
-export { isFirebaseConfigured }
