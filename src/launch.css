@@ -470,9 +470,26 @@ body {
 
 .setup-topline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .setup-topline > button { border: 0; padding: 9px 11px; border-radius: 12px; color: var(--muted); background: rgba(31, 28, 91, .06); font-size: 9px; }
-.month-setup-card > .rushd-character-wrap { min-height: 115px; margin-bottom: 5px; }
-.month-setup-card h1 { margin: 5px 0; font-size: clamp(26px, 8vw, 36px); }
+.month-setup-card > .rushd-character-wrap { width: 100%; min-height: 115px; margin-bottom: 5px; }
+.month-setup-card h1 { margin: 5px 0; font-size: clamp(25px, 7vw, 32px); line-height: 1.28; }
 .month-setup-card > p { margin-bottom: 17px; font-size: 11px; }
+.month-setup-card form,
+.month-setup-card label { min-width: 0; }
+.month-setup-card input[type='month'] {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
+  direction: rtl;
+  text-align: right;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.month-setup-card input[type='month']::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: right;
+}
 .month-setup-card label > div { display: grid; grid-template-columns: 1fr auto; align-items: center; padding-inline-end: 13px; border: 1px solid rgba(31, 28, 91, .11); border-radius: 15px; background: #fff; }
 .month-setup-card label > div input { border: 0; background: transparent; box-shadow: none; }
 .month-setup-card label > div b { color: var(--muted); font-size: 10px; }
@@ -721,6 +738,38 @@ body {
   }
 }
 
+@media (max-width: 430px) {
+  .setup-canvas { padding-inline: 12px; }
+  .month-setup-card {
+    margin-block: 76px 24px;
+    padding: 18px;
+    border-radius: 29px;
+  }
+  .month-setup-card > .rushd-character-wrap {
+    min-height: 94px;
+    gap: 6px;
+  }
+  .month-setup-card .rushd-character {
+    width: 86px;
+    height: 86px;
+    flex: 0 0 86px;
+  }
+  .month-setup-card .rushd-bubble {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+  .month-setup-card h1 { font-size: clamp(24px, 7vw, 29px); }
+  .launch-tools-trigger {
+    left: 12px;
+    width: 48px;
+    padding: 0;
+  }
+  .launch-tools-trigger small { display: none; }
+}
+
 @media (max-width: 390px) {
   .topbar { padding-left: 58px; }
   .profile strong { max-width: 128px; font-size: 16px; }
@@ -728,7 +777,7 @@ body {
   .auth-welcome,
   .month-setup-card { padding: 18px; border-radius: 29px; }
   .auth-character .rushd-bubble,
-  .month-setup-card .rushd-bubble { max-width: 210px; font-size: 11px; }
+  .month-setup-card .rushd-bubble { font-size: 11px; }
   .month-switcher { grid-template-columns: minmax(0, 1fr) auto; }
   .month-switcher button { grid-column: 1 / -1; width: 100%; }
   .wealth-empty-launch > div { grid-template-columns: 1fr; }

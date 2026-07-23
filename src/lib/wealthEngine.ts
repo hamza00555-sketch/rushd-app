@@ -1,3 +1,5 @@
+import { ARABIC_GREGORIAN_LOCALE } from './locale'
+
 export type InvestmentAccountType = 'investment' | 'cash' | 'child'
 
 export type InvestmentAccount = {
@@ -65,7 +67,7 @@ const formatProjectedDate = (months: number | null) => {
   if (months === 0) return 'مكتمل الآن'
   const date = new Date()
   date.setMonth(date.getMonth() + months)
-  return date.toLocaleDateString('ar-SA', { month: 'long', year: 'numeric' })
+  return date.toLocaleDateString(ARABIC_GREGORIAN_LOCALE, { month: 'long', year: 'numeric' })
 }
 
 export const projectGoal = (goal: FinancialGoal): GoalProjection => {

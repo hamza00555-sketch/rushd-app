@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type { BudgetCategory, CategoryTone } from './financialEngine'
+import { ARABIC_GREGORIAN_LOCALE } from './locale'
 
 export type MonthlyTransaction = {
   id: string
@@ -77,10 +78,13 @@ export const getNextMonthKey = (monthKey: string) => {
 
 export const formatMonthLabel = (monthKey: string) => {
   const [year, month] = monthKey.split('-').map(Number)
-  return new Date(year, month - 1, 1).toLocaleDateString('ar-SA', { month: 'long', year: 'numeric' })
+  return new Date(year, month - 1, 1).toLocaleDateString(ARABIC_GREGORIAN_LOCALE, {
+    month: 'long',
+    year: 'numeric',
+  })
 }
 
-export const formatTransactionDate = (date: Date) => date.toLocaleDateString('ar-SA', {
+export const formatTransactionDate = (date: Date) => date.toLocaleDateString(ARABIC_GREGORIAN_LOCALE, {
   day: 'numeric',
   month: 'short',
 })
