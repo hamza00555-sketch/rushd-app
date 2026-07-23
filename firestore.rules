@@ -64,6 +64,22 @@ service cloud.firestore {
         && request.resource.data.categoryId.size() > 0;
     }
 
+    function validMarketBudget() {
+      return request.resource.data.kind == 'budget'
+        && request.resource.data.monthKey is string
+        && request.resource.data.budget is number
+        && request.resource.data.budget > 0;
+    }
+
+    function validMarketExpense() {
+      return request.resource.data.kind == 'expense'
+        && request.resource.data.monthKey is string
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0;
+    }
+
     match /users/{userId} {
       allow create, read, update, delete: if isSelf(userId);
 
@@ -119,11 +135,17 @@ service cloud.firestore {
 
       match /marketItems/{itemId} {
         allow read: if canViewModule(householdId, 'market');
-        allow create: if canEditModule(householdId, 'market')
-          && request.resource.data.addedBy == request.auth.uid;
-        allow update: if canEditModule(householdId, 'market')
-          && request.resource.data.addedBy == resource.data.addedBy;
-        allow delete: if canEditModule(householdId, 'market');
+        allow create: if request.resource.data.addedBy == request.auth.uid
+          && ((validMarketBudget() && isHouseholdOwner(householdId))
+            || (validMarketExpense() && canEditModule(householdId, 'market')));
+        allow update: if request.resource.data.addedBy == resource.data.addedBy
+          && request.resource.data.kind == resource.data.kind
+          && request.resource.data.monthKey == resource.data.monthKey
+          && ((validMarketBudget() && isHouseholdOwner(householdId))
+            || (validMarketExpense() && canEditModule(householdId, 'market')));
+        allow delete: if (resource.data.kind == 'budget' && isHouseholdOwner(householdId))
+          || (resource.data.kind == 'expense' && canEditModule(householdId, 'market'))
+          || (!resource.data.keys().hasAny(['kind']) && canEditModule(householdId, 'market'));
       }
 
       match /wishes/{wishId} {
