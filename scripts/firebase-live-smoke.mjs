@@ -43,7 +43,8 @@ const ownerEmail = `rushd-smoke-owner-${runId}@example.com`
 const memberEmail = `rushd-smoke-member-${runId}@example.com`
 const password = `Rushd-${runId}-A9!`
 const householdId = `smoke-${runId}`
-const marketItemId = `market-${runId}`
+const marketBudgetId = `market-budget-${runId}`
+const marketExpenseId = `market-expense-${runId}`
 const wishId = `wish-${runId}`
 const monthKey = '2099-01'
 const nextMonthKey = '2099-02'
@@ -153,12 +154,24 @@ try {
   })
   await deleteDoc(doc(memberDb, 'householdInvites', memberEmail))
 
-  await setDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketItemId), {
-    title: 'Live smoke item',
-    quantity: '1',
+  await setDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketBudgetId), {
+    kind: 'budget',
+    monthKey,
+    budget: 1500.5,
     addedBy: ownerUid,
     addedByName: 'Owner',
-    checked: false,
+    updatedBy: ownerUid,
+    updatedByName: 'Owner',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  await setDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketExpenseId), {
+    kind: 'expense',
+    monthKey,
+    title: 'Live smoke groceries',
+    amount: 125.75,
+    addedBy: ownerUid,
+    addedByName: 'Owner',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -234,23 +247,27 @@ try {
   const householdSnapshot = await getDoc(doc(memberDb, 'households', householdId))
   assert.equal(householdSnapshot.exists(), true, 'Invited member could not read the household.')
 
-  const marketSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketItemId))
-  assert.equal(marketSnapshot.data()?.title, 'Live smoke item')
+  const marketBudgetSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketBudgetId))
+  assert.equal(marketBudgetSnapshot.data()?.budget, 1500.5)
+  const marketExpenseSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketExpenseId))
+  assert.equal(marketExpenseSnapshot.data()?.amount, 125.75)
   const wishSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'wishes', wishId))
   assert.equal(wishSnapshot.data()?.title, 'Live smoke wish')
 
   let unsubscribeRealtime = () => undefined
   const realtimeUpdate = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Realtime market update timed out.')), 8000)
-    unsubscribeRealtime = onSnapshot(doc(ownerDb, 'households', householdId, 'marketItems', marketItemId), (snapshot) => {
-      if (snapshot.data()?.checked === true) {
+    const timeout = setTimeout(() => reject(new Error('Realtime supermarket budget update timed out.')), 8000)
+    unsubscribeRealtime = onSnapshot(doc(ownerDb, 'households', householdId, 'marketItems', marketBudgetId), (snapshot) => {
+      if (snapshot.data()?.budget === 1400.25) {
         clearTimeout(timeout)
         resolve()
       }
     }, reject)
   })
-  await updateDoc(doc(memberDb, 'households', householdId, 'marketItems', marketItemId), {
-    checked: true,
+  await updateDoc(doc(memberDb, 'households', householdId, 'marketItems', marketBudgetId), {
+    budget: 1400.25,
+    updatedBy: memberUid,
+    updatedByName: 'Member',
     updatedAt: serverTimestamp(),
   })
   await realtimeUpdate
@@ -289,8 +306,12 @@ try {
     permissions: { market: 'none', wishes: 'view', noor: 'none' },
   })
   await expectPermissionDenied(
-    () => getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketItemId)),
-    'A member with no market access could still read the market item.',
+    () => getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketBudgetId)),
+    'A member with no market access could still read the supermarket budget.',
+  )
+  await expectPermissionDenied(
+    () => getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketExpenseId)),
+    'A member with no market access could still read supermarket expenses.',
   )
 
   await signOut(ownerAuth)
@@ -309,7 +330,7 @@ try {
   await deleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
   assert.equal((await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))).exists(), false, 'Promotion scenario was not deleted.')
 
-  process.stdout.write('Firebase live smoke test passed: private monthly data, household permissions, and realtime sync are working.\n')
+  process.stdout.write('Firebase live smoke test passed: private monthly data, shared supermarket budget, household permissions, and realtime sync are working.\n')
 } finally {
   if (ownerUid) {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId))
@@ -319,7 +340,8 @@ try {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'financialGoals', goalId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'wishes', wishId))
-    await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketItemId))
+    await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketExpenseId))
+    await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketBudgetId))
     if (memberUid) await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'members', memberUid))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'members', ownerUid))
     await safeDeleteDoc(doc(ownerDb, 'householdInvites', memberEmail))

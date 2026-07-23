@@ -19,7 +19,7 @@ import {
   type MonthlyTransaction,
 } from './lib/monthlyPlanRepository'
 import type { AccessLevel } from './lib/household'
-import type { SharedMarketItem, SharedWish } from './lib/householdRepository'
+import type { SharedMarketBudget, SharedMarketExpense, SharedWish } from './lib/householdRepository'
 
 type Tab = 'home' | 'month' | 'wishes' | 'market'
 
@@ -34,8 +34,19 @@ const tabMessages: Record<Tab, string> = {
   home: 'هذه قراءة شهرِك الحالي، وكل رقم هنا محفوظ في حسابك الخاص.',
   month: 'غيّر الراتب أو أضف مصروفًا، وأنا أعيد قراءة الخطة فورًا.',
   wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
-  market: 'القائمة مشتركة، لذلك ما عاد فيه: كنت أحسبك اشتريتها.',
+  market: 'كل مشتريات السوبرماركت تنخصم فورًا، والمتبقي واضح لكل شخص عنده صلاحية.',
 }
+
+const parseCurrencyInput = (input: string) => {
+  const normalized = input
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[٬,\s]/g, '')
+    .replace('٫', '.')
+  return Number(normalized)
+}
+
+const formatMarketSar = (value: number) =>
+  new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 2 }).format(value)
 
 const syncMessage = (status: SharedSyncStatus, error: string) => {
   if (status === 'synced') return { title: 'متصل لحظيًا', body: 'أي تعديل يظهر لأعضاء البيت مباشرة.' }
@@ -62,13 +73,13 @@ function HomeView({
   salary,
   categories,
   wishes,
-  pendingMarket,
+  marketRemaining,
   onOpenMonth,
 }: {
   salary: number
   categories: BudgetCategory[]
   wishes: SharedWish[]
-  pendingMarket: number
+  marketRemaining: number | null
   onOpenMonth: () => void
 }) {
   const snapshot = getFinancialSnapshot(salary, categories)
@@ -120,7 +131,10 @@ function HomeView({
 
       <section className="living-summary">
         <motion.span animate={{ rotate: [0, 18, 0], scale: [1, 1.2, 1] }} transition={{ duration: 2.8, repeat: Infinity }}>✦</motion.span>
-        <div><strong>ملخص البيت</strong><p>{pendingMarket} عناصر في السوبرماركت، وخطتك المالية الخاصة لا تظهر لأي عضو.</p></div>
+        <div>
+          <strong>ملخص البيت</strong>
+          <p>{marketRemaining === null ? 'ميزانية السوبرماركت لهذا الشهر لم تُحدّد بعد.' : marketRemaining >= 0 ? `باقي ${formatMarketSar(marketRemaining)} ريال من ميزانية السوبرماركت.` : `ميزانية السوبرماركت متجاوزة بـ ${formatMarketSar(Math.abs(marketRemaining))} ريال.`}</p>
+        </div>
       </section>
     </motion.main>
   )
@@ -345,44 +359,80 @@ function WishesView({
 }
 
 function MarketView({
-  items,
-  onToggle,
-  onAdd,
+  monthKey,
+  setMonthKey,
+  budget,
+  expenses,
+  onSaveBudget,
+  onAddExpense,
   access,
   syncStatus,
   syncError,
 }: {
-  items: SharedMarketItem[]
-  onToggle: (item: SharedMarketItem) => Promise<void>
-  onAdd: (title: string, quantity: string) => Promise<void>
+  monthKey: string
+  setMonthKey: (value: string) => void
+  budget: SharedMarketBudget | null
+  expenses: SharedMarketExpense[]
+  onSaveBudget: (amount: number) => Promise<void>
+  onAddExpense: (amount: number, title: string) => Promise<void>
   access: AccessLevel
   syncStatus: SharedSyncStatus
   syncError: string
 }) {
-  const checked = items.filter((item) => item.checked).length
-  const progress = getSpentPercentage(checked, items.length)
   const sync = syncMessage(syncStatus, syncError)
-  const [formOpen, setFormOpen] = useState(false)
-  const [title, setTitle] = useState('')
-  const [quantity, setQuantity] = useState('')
+  const spent = expenses.reduce((total, expense) => total + expense.amount, 0)
+  const budgetAmount = budget?.amount ?? 0
+  const remaining = budgetAmount - spent
+  const progress = getSpentPercentage(spent, budgetAmount)
+  const [budgetFormOpen, setBudgetFormOpen] = useState(!budget)
+  const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.amount) : '')
+  const [expenseAmount, setExpenseAmount] = useState('')
+  const [expenseTitle, setExpenseTitle] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [budgetError, setBudgetError] = useState('')
+  const [expenseError, setExpenseError] = useState('')
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    setBudgetDraft(budget ? String(budget.amount) : '')
+    setBudgetFormOpen(!budget)
+    setBudgetError('')
+    setExpenseError('')
+  }, [budget?.amount, monthKey])
+
+  const submitBudget = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!title.trim()) {
-      setError('اكتب اسم العنصر أولًا.')
+    const amount = parseCurrencyInput(budgetDraft)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setBudgetError('اكتب ميزانية شهرية صحيحة.')
       return
     }
     setBusy(true)
-    setError('')
+    setBudgetError('')
     try {
-      await onAdd(title.trim(), quantity.trim() || 'بدون كمية')
-      setTitle('')
-      setQuantity('')
-      setFormOpen(false)
+      await onSaveBudget(amount)
+      setBudgetFormOpen(false)
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'تعذرت إضافة العنصر.')
+      setBudgetError(cause instanceof Error ? cause.message : 'تعذر حفظ ميزانية السوبرماركت.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitExpense = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const amount = parseCurrencyInput(expenseAmount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setExpenseError('اكتب مبلغ المشتريات بشكل صحيح.')
+      return
+    }
+    setBusy(true)
+    setExpenseError('')
+    try {
+      await onAddExpense(amount, expenseTitle)
+      setExpenseAmount('')
+      setExpenseTitle('')
+    } catch (cause: unknown) {
+      setExpenseError(cause instanceof Error ? cause.message : 'تعذر خصم المبلغ من الميزانية.')
     } finally {
       setBusy(false)
     }
@@ -390,28 +440,75 @@ function MarketView({
 
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="market-hero"><span>السوبرماركت المشترك</span><h1>{access === 'none' ? 'قائمة خاصة' : `${items.length - checked} عناصر متبقية`}</h1><p>كل عضو يرى التحديث حسب مستوى صلاحيته: عرض فقط أو عرض وتعديل.</p><ProgressBar value={progress}/></section>
-      <section className="section-block market-list">
-        {access === 'none' ? (
-          <div className="module-empty-state compact"><span>🔒</span><strong>لا تملك وصولًا لهذه القائمة</strong><p>يقدر مالك البيت تفعيلها لك من الصلاحيات.</p></div>
+      <section className={`market-budget-hero ${remaining < 0 ? 'is-over' : ''}`}>
+        <div className="market-month-row">
+          <div><span>ميزانية السوبرماركت</span><small>{formatMonthLabel(monthKey)}</small></div>
+          <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="شهر ميزانية السوبرماركت" />
+        </div>
+        {syncStatus === 'connecting' ? (
+          <><h1>نراجع ميزانية الشهر…</h1><p>لحظة ونجيب آخر المشتريات المسجلة في البيت.</p></>
+        ) : access === 'none' ? (
+          <><h1>هذه الميزانية خاصة</h1><p>مالك البيت يقدر يمنحك صلاحية العرض أو التعديل.</p></>
+        ) : !budget ? (
+          <><h1>حدّدوا ميزانية الشهر</h1><p>ضعوا المبلغ المتاح للسوبرماركت، وبعدها كل مشتريات تنخصم منه مباشرة.</p></>
         ) : (
           <>
-            {items.length === 0 && <div className="module-empty-state compact"><span>🛒</span><strong>القائمة فاضية</strong><p>أضف أول احتياج للبيت.</p></div>}
-            {items.map((item, index) => <motion.button type="button" disabled={access !== 'edit' || busy} className={`market-row ${item.checked ? 'is-checked' : ''}`} key={item.id} onClick={() => void onToggle(item)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.07 }}><span className="check-circle">{item.checked ? '✓' : ''}</span><span className="market-copy"><strong>{item.title}</strong><small>{item.quantity} · أضافها {item.owner}</small></span></motion.button>)}
-            {access === 'edit' && !formOpen && <button type="button" className="secondary-button" onClick={() => setFormOpen(true)}>＋ إضافة عنصر</button>}
-            {access === 'view' && <div className="view-only-note">صلاحيتك الحالية: عرض فقط</div>}
-            {formOpen && (
-              <form className="shared-entry-form compact" onSubmit={submit}>
-                <div className="shared-form-heading"><strong>عنصر جديد</strong><button type="button" onClick={() => setFormOpen(false)} aria-label="إلغاء">×</button></div>
-                <input data-autofocus placeholder="اسم العنصر" value={title} onChange={(event) => setTitle(event.target.value)} />
-                <input placeholder="الكمية — اختياري" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-                {error && <div className="inline-form-error" role="alert">{error}</div>}
-                <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : 'إضافة للقائمة'}</button>
-              </form>
-            )}
+            <span className="market-balance-label">{remaining >= 0 ? 'المتبقي هذا الشهر' : 'تجاوزتم الميزانية بـ'}</span>
+            <strong className="market-balance">{formatMarketSar(Math.abs(remaining))} <small>ريال</small></strong>
+            <div className="market-budget-progress" aria-label={`استخدمتم ${progress}% من ميزانية السوبرماركت`}><motion.i initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: .65 }} /></div>
+            <div className="market-budget-stats">
+              <div><span>ميزانية الشهر</span><b>{formatMarketSar(budgetAmount)} ريال</b></div>
+              <div><span>المصروف حتى الآن</span><b>{formatMarketSar(spent)} ريال</b></div>
+            </div>
           </>
         )}
       </section>
+
+      {access !== 'none' && syncStatus !== 'connecting' && (
+        <>
+          {access === 'edit' && budgetFormOpen && (
+            <form className="shared-entry-form market-budget-form" onSubmit={submitBudget}>
+              <div className="shared-form-heading">
+                <div><strong>{budget ? 'تعديل ميزانية الشهر' : 'ميزانية الشهر'}</strong><small>المبلغ المتاح للسوبرماركت فقط</small></div>
+                {budget && <button type="button" onClick={() => setBudgetFormOpen(false)} aria-label="إلغاء تعديل الميزانية">×</button>}
+              </div>
+              <label className="market-form-label"><span>الميزانية بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 1500" aria-label="ميزانية السوبرماركت الشهرية" /></label>
+              {budgetError && <div className="inline-form-error" role="alert">{budgetError}</div>}
+              <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : budget ? 'حفظ الميزانية الجديدة' : 'اعتماد ميزانية الشهر'}</button>
+            </form>
+          )}
+
+          {budget && access === 'edit' && !budgetFormOpen && (
+            <button type="button" className="secondary-button market-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الشهر</button>
+          )}
+
+          {budget && access === 'edit' && (
+            <form className="section-block market-deduction-form" onSubmit={submitExpense}>
+              <div className="section-title"><div><span>خصم سريع</span><h2>سجّل قيمة المشتريات</h2></div><i aria-hidden="true">−</i></div>
+              <label className="market-form-label"><span>المبلغ المدفوع</span><div className="market-amount-input"><input inputMode="decimal" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} placeholder="0" aria-label="قيمة مشتريات السوبرماركت" /><b>ريال</b></div></label>
+              <label className="market-form-label"><span>ملاحظة — اختيارية</span><input value={expenseTitle} onChange={(event) => setExpenseTitle(event.target.value)} placeholder="مثلاً بنده أو مشتريات الأسبوع" aria-label="وصف مشتريات السوبرماركت" /></label>
+              {expenseError && <div className="inline-form-error" role="alert">{expenseError}</div>}
+              <button type="submit" disabled={busy}>{busy ? 'جاري الخصم…' : 'خصم من الميزانية'}</button>
+            </form>
+          )}
+
+          {budget && (
+            <section className="section-block market-ledger">
+              <div className="section-title"><div><span>حركة الميزانية</span><h2>آخر المشتريات</h2></div><b>{expenses.length}</b></div>
+              {expenses.length === 0 && <div className="module-empty-state compact"><span>🧾</span><strong>ما فيه مشتريات مسجلة</strong><p>أول مبلغ تسجلونه سيظهر هنا ويُخصم من الميزانية.</p></div>}
+              {expenses.map((expense, index) => (
+                <motion.article className="market-expense-row" key={expense.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}>
+                  <span aria-hidden="true">🛒</span>
+                  <div><strong>{expense.title}</strong><small>{expense.owner} · {expense.dateLabel}</small></div>
+                  <b>−{formatMarketSar(expense.amount)}</b>
+                </motion.article>
+              ))}
+            </section>
+          )}
+
+          {access === 'view' && <div className="view-only-note">صلاحيتك الحالية: عرض الميزانية فقط</div>}
+        </>
+      )}
       <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
     </motion.main>
   )
@@ -493,12 +590,13 @@ function MonthSetup({
 export default function App({ user, displayName, onSaveDisplayName, onLogout }: AppProps) {
   const [tab, setTab] = useState<Tab>('home')
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey())
+  const [marketMonthKey, setMarketMonthKey] = useState(getCurrentMonthKey())
   const [salaryDraft, setSalaryDraft] = useState('')
   const [lastKnownSalary, setLastKnownSalary] = useState('')
   const [message, setMessage] = useState(tabMessages.home)
   const [counter, setCounter] = useState(0)
   const monthly = useMonthlyPlan(user, monthKey)
-  const shared = useSharedModules(user)
+  const shared = useSharedModules(user, marketMonthKey)
   const plan = monthly.plan
 
   useEffect(() => {
@@ -509,7 +607,11 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
   }, [plan?.monthKey, plan?.salary])
 
   const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' ? 'happy' : 'calm', [tab])
-  const pendingMarket = shared.marketItems.filter((item) => !item.checked).length
+  const marketDataIsCurrent = shared.marketBudget?.monthKey === marketMonthKey
+  const marketExpenses = marketDataIsCurrent ? shared.marketExpenses : []
+  const marketBudget = marketDataIsCurrent ? shared.marketBudget : null
+  const marketSpent = marketExpenses.reduce((total, expense) => total + expense.amount, 0)
+  const marketRemaining = marketBudget ? marketBudget.amount - marketSpent : null
   const safeName = displayName.trim() || user.displayName?.trim() || user.email?.split('@')[0] || 'عضو رُشد'
   const initial = Array.from(safeName)[0] || 'ر'
 
@@ -550,14 +652,17 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
     setMessage('تمت إضافة الأمنية ومزامنتها مع البيت.')
   }
 
-  const addMarketItem = async (title: string, quantity: string) => {
-    await shared.addMarket(title, quantity)
-    setMessage('تمت إضافة العنصر ومزامنته مع البيت.')
+  const saveMarketBudget = async (amount: number) => {
+    await shared.saveMarketBudget(amount)
+    setMessage(`تم اعتماد ميزانية السوبرماركت: ${formatMarketSar(amount)} ريال.`)
   }
 
-  const toggleMarketItem = async (item: SharedMarketItem) => {
-    await shared.toggleMarket(item)
-    setMessage('تم تحديث حالة العنصر.')
+  const addMarketExpense = async (amount: number, title: string) => {
+    const projectedRemaining = (marketBudget?.amount ?? 0) - (marketSpent + amount)
+    await shared.addMarketExpense(amount, title)
+    setMessage(projectedRemaining < 0
+      ? `تنبيه: تجاوزتم ميزانية السوبرماركت بـ ${formatMarketSar(Math.abs(projectedRemaining))} ريال.`
+      : `تم الخصم. باقي ${formatMarketSar(projectedRemaining)} ريال من ميزانية السوبرماركت.`)
   }
 
   const pressCharacter = () => {
@@ -597,7 +702,7 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
         {(monthly.error || shared.error) && <div className="app-inline-alert" role="alert">{monthly.error || shared.error}</div>}
         <AnimatePresence mode="wait">
           {tab === 'home' && (
-            <HomeView key="home" salary={plan.salary} categories={plan.categories} wishes={shared.wishes} pendingMarket={pendingMarket} onOpenMonth={() => changeTab('month')}/>
+            <HomeView key="home" salary={plan.salary} categories={plan.categories} wishes={shared.wishes} marketRemaining={marketRemaining} onOpenMonth={() => changeTab('month')}/>
           )}
           {tab === 'month' && (
             <MonthView key="month" monthKey={monthKey} setMonthKey={setMonthKey} salary={plan.salary} salaryDraft={salaryDraft} setSalaryDraft={setSalaryDraft} categories={plan.categories} transactions={plan.transactions} onRebuild={rebuildPlan} onAddExpense={addExpense} saving={monthly.saving} fromCache={plan.fromCache} hasPendingWrites={plan.hasPendingWrites}/>
@@ -606,7 +711,18 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
             <WishesView key="wishes" wishes={shared.wishes} onAdd={addWish} access={shared.permissions.wishes} syncStatus={shared.status} syncError={shared.error}/>
           )}
           {tab === 'market' && (
-            <MarketView key="market" items={shared.marketItems} onToggle={toggleMarketItem} onAdd={addMarketItem} access={shared.permissions.market} syncStatus={shared.status} syncError={shared.error}/>
+            <MarketView
+              key="market"
+              monthKey={marketMonthKey}
+              setMonthKey={setMarketMonthKey}
+              budget={marketBudget}
+              expenses={marketExpenses}
+              onSaveBudget={saveMarketBudget}
+              onAddExpense={addMarketExpense}
+              access={shared.permissions.market}
+              syncStatus={shared.status}
+              syncError={shared.error}
+            />
           )}
         </AnimatePresence>
         <nav className="bottom-nav" aria-label="التنقل الرئيسي">

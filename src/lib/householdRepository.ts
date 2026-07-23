@@ -45,18 +45,25 @@ export type SharedWish = {
   owner: string
 }
 
-export type SharedMarketItem = {
+export type SharedMarketBudget = {
+  monthKey: string
+  amount: number
+}
+
+export type SharedMarketExpense = {
   id: string
   title: string
-  quantity: string
+  amount: number
   owner: string
-  checked: boolean
+  occurredAt: Date
+  dateLabel: string
 }
 
 export type SharedWorkspaceData = {
   householdId: string
   wishes: SharedWish[]
-  marketItems: SharedMarketItem[]
+  marketBudget: SharedMarketBudget | null
+  marketExpenses: SharedMarketExpense[]
   permissions: Record<SharedModule, AccessLevel>
 }
 
@@ -332,7 +339,7 @@ export const subscribeToHousehold = (householdId: string, onChange: () => void):
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
 }
 
-export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspaceData> => {
+export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string): Promise<SharedWorkspaceData> => {
   const householdId = await ensureHousehold(user)
   const membershipSnapshot = await getDoc(doc(db, 'households', householdId, 'members', user.uid))
   if (!membershipSnapshot.exists()) throw new Error('تعذر التحقق من صلاحيات مساحة العائلة.')
@@ -341,23 +348,48 @@ export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspa
   const canViewMarket = permissions.market === 'view' || permissions.market === 'edit'
   const canViewWishes = permissions.wishes === 'view' || permissions.wishes === 'edit'
   const [marketSnapshot, wishesSnapshot] = await Promise.all([
-    canViewMarket ? getDocs(query(collection(db, 'households', householdId, 'marketItems'), orderBy('createdAt', 'asc'))) : null,
+    canViewMarket ? getDocs(query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey))) : null,
     canViewWishes ? getDocs(query(collection(db, 'households', householdId, 'wishes'), orderBy('createdAt', 'asc'))) : null,
   ])
+
+  const marketDocuments = marketSnapshot?.docs ?? []
+  const marketBudgetDocument = marketDocuments.find((snapshot) => {
+    const data = snapshot.data()
+    return data.kind === 'budget' && data.monthKey === marketMonthKey
+  })
+  const marketBudgetData = marketBudgetDocument?.data()
+  const marketExpenses = marketDocuments
+    .filter((snapshot) => {
+      const data = snapshot.data()
+      return data.kind === 'expense' && data.monthKey === marketMonthKey
+    })
+    .map<SharedMarketExpense>((snapshot) => {
+      const data = snapshot.data()
+      const createdAt = data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date()
+      return {
+        id: snapshot.id,
+        title: String(data.title || 'مشتريات سوبرماركت'),
+        amount: Math.max(0, Number(data.amount || 0)),
+        owner: String(data.addedByName || 'عضو رُشد'),
+        occurredAt: createdAt,
+        dateLabel: createdAt.toLocaleString(ARABIC_GREGORIAN_LOCALE, {
+          day: 'numeric',
+          month: 'short',
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+      }
+    })
+    .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
 
   return {
     householdId,
     permissions,
-    marketItems: (marketSnapshot?.docs ?? []).map((snapshot) => {
-      const item = snapshot.data()
-      return {
-        id: snapshot.id,
-        title: String(item.title || ''),
-        quantity: String(item.quantity || 'بدون كمية'),
-        owner: String(item.addedByName || 'عضو رُشد'),
-        checked: Boolean(item.checked),
-      }
-    }),
+    marketBudget: marketBudgetData && Number(marketBudgetData.budget) > 0 ? {
+      monthKey: marketMonthKey,
+      amount: Number(marketBudgetData.budget),
+    } : null,
+    marketExpenses,
     wishes: (wishesSnapshot?.docs ?? []).map((snapshot) => {
       const wish = snapshot.data()
       return {
@@ -373,25 +405,60 @@ export const loadSharedWorkspaceData = async (user: User): Promise<SharedWorkspa
   }
 }
 
-export const addSharedMarketItem = async (householdId: string, user: User, title: string, quantity: string) => {
+export const saveSharedMarketBudget = async (
+  householdId: string,
+  user: User,
+  monthKey: string,
+  budget: number,
+) => {
+  const reference = doc(db, 'households', householdId, 'marketItems', `market-budget-${monthKey}`)
+  const snapshot = await getDoc(reference)
+  const amount = Math.max(0.01, Math.round(budget * 100) / 100)
+  if (snapshot.exists()) {
+    await updateDoc(reference, {
+      kind: 'budget',
+      monthKey,
+      budget: amount,
+      updatedBy: user.uid,
+      updatedByName: getUserName(user),
+      updatedAt: serverTimestamp(),
+    })
+  } else {
+    await setDoc(reference, {
+      kind: 'budget',
+      monthKey,
+      budget: amount,
+      addedBy: user.uid,
+      addedByName: getUserName(user),
+      updatedBy: user.uid,
+      updatedByName: getUserName(user),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  }
+  await insertActivity(householdId, user, 'حدّد ميزانية السوبرماركت', `${amount} ريال`)
+}
+
+export const addSharedMarketExpense = async (
+  householdId: string,
+  user: User,
+  monthKey: string,
+  amountInput: number,
+  titleInput: string,
+) => {
+  const amount = Math.max(0.01, Math.round(amountInput * 100) / 100)
+  const title = titleInput.trim() || 'مشتريات سوبرماركت'
   await addDoc(collection(db, 'households', householdId, 'marketItems'), {
+    kind: 'expense',
+    monthKey,
     title,
-    quantity,
+    amount,
     addedBy: user.uid,
     addedByName: getUserName(user),
-    checked: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
-  await insertActivity(householdId, user, 'أضاف عنصرًا', `${title} إلى السوبرماركت`)
-}
-
-export const toggleSharedMarketItem = async (householdId: string, user: User, item: SharedMarketItem) => {
-  await updateDoc(doc(db, 'households', householdId, 'marketItems', item.id), {
-    checked: !item.checked,
-    updatedAt: serverTimestamp(),
-  })
-  await insertActivity(householdId, user, item.checked ? 'أعاد عنصرًا للقائمة' : 'أكمل شراء', item.title)
+  await insertActivity(householdId, user, 'خصم من ميزانية السوبرماركت', `${amount} ريال · ${title}`)
 }
 
 export const addSharedWish = async (
@@ -416,12 +483,17 @@ export const addSharedWish = async (
 export const subscribeToSharedData = (
   householdId: string,
   permissions: Record<SharedModule, AccessLevel>,
+  marketMonthKey: string,
   onChange: () => void,
   onError?: (cause: unknown) => void,
 ): Unsubscribe => {
   const unsubscribers: Unsubscribe[] = []
   if (permissions.market !== 'none') {
-    unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'marketItems'), onChange, onError))
+    unsubscribers.push(onSnapshot(
+      query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey)),
+      onChange,
+      onError,
+    ))
   }
   if (permissions.wishes !== 'none') {
     unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'wishes'), onChange, onError))

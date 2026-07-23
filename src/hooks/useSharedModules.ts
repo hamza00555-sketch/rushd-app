@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Unsubscribe, User } from 'firebase/auth'
 import {
-  addSharedMarketItem,
+  addSharedMarketExpense,
   addSharedWish,
   loadSharedWorkspaceData,
+  saveSharedMarketBudget,
   subscribeToMemberAccess,
   subscribeToSharedData,
-  toggleSharedMarketItem,
-  type SharedMarketItem,
+  type SharedMarketBudget,
+  type SharedMarketExpense,
   type SharedWish,
   type SharedWorkspaceData,
 } from '../lib/householdRepository'
@@ -22,23 +23,27 @@ const noAccess: Record<SharedModule, AccessLevel> = {
   noor: 'none',
 }
 
-export function useSharedModules(user: User) {
+export function useSharedModules(user: User, marketMonthKey: string) {
   const [wishes, setWishes] = useState<SharedWish[]>([])
-  const [marketItems, setMarketItems] = useState<SharedMarketItem[]>([])
+  const [marketBudget, setMarketBudget] = useState<SharedMarketBudget | null>(null)
+  const [marketExpenses, setMarketExpenses] = useState<SharedMarketExpense[]>([])
   const [permissions, setPermissions] = useState<Record<SharedModule, AccessLevel>>(noAccess)
   const [status, setStatus] = useState<SharedSyncStatus>('connecting')
   const [error, setError] = useState('')
   const householdIdRef = useRef<string | null>(null)
+  const marketMonthKeyRef = useRef(marketMonthKey)
   const sharedRealtimeRef = useRef<Unsubscribe | null>(null)
   const memberRealtimeRef = useRef<Unsubscribe | null>(null)
   const permissionsRef = useRef(noAccess)
+  marketMonthKeyRef.current = marketMonthKey
 
   const applyData = useCallback((data: SharedWorkspaceData) => {
     householdIdRef.current = data.householdId
     permissionsRef.current = data.permissions
     setPermissions(data.permissions)
     setWishes(data.wishes)
-    setMarketItems(data.marketItems)
+    setMarketBudget(data.marketBudget)
+    setMarketExpenses(data.marketExpenses)
     setStatus('synced')
     setError('')
   }, [])
@@ -49,24 +54,25 @@ export function useSharedModules(user: User) {
   }, [])
 
   const refreshData = useCallback(async () => {
-    const data = await loadSharedWorkspaceData(user)
-    applyData(data)
+    const data = await loadSharedWorkspaceData(user, marketMonthKey)
+    if (marketMonthKeyRef.current === marketMonthKey) applyData(data)
     return data
-  }, [applyData, user])
+  }, [applyData, marketMonthKey, user])
 
   const connectSharedRealtime = useCallback((data: SharedWorkspaceData) => {
     sharedRealtimeRef.current?.()
-    sharedRealtimeRef.current = subscribeToSharedData(data.householdId, data.permissions, () => {
+    sharedRealtimeRef.current = subscribeToSharedData(data.householdId, data.permissions, marketMonthKey, () => {
       void refreshData().catch(fail)
     }, fail)
-  }, [fail, refreshData])
+  }, [fail, marketMonthKey, refreshData])
 
   useEffect(() => {
     let active = true
     setStatus('connecting')
     setError('')
     setWishes([])
-    setMarketItems([])
+    setMarketBudget(null)
+    setMarketExpenses([])
 
     void refreshData()
       .then((data) => {
@@ -96,21 +102,22 @@ export function useSharedModules(user: User) {
     }
   }, [connectSharedRealtime, fail, refreshData, user.uid])
 
-  const addMarket = useCallback(async (title: string, quantity: string) => {
+  const saveMarketBudget = useCallback(async (budget: number) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
-    await addSharedMarketItem(householdId, user, title, quantity)
+    await saveSharedMarketBudget(householdId, user, marketMonthKey, budget)
     await refreshData()
-  }, [refreshData, user])
+  }, [marketMonthKey, refreshData, user])
 
-  const toggleMarket = useCallback(async (item: SharedMarketItem) => {
+  const addMarketExpense = useCallback(async (amount: number, title: string) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
-    await toggleSharedMarketItem(householdId, user, item)
+    if (!marketBudget) throw new Error('حدّد ميزانية الشهر قبل تسجيل أي مشتريات.')
+    await addSharedMarketExpense(householdId, user, marketMonthKey, amount, title)
     await refreshData()
-  }, [refreshData, user])
+  }, [marketBudget, marketMonthKey, refreshData, user])
 
   const addWish = useCallback(async (input: { title: string; icon: string; target: number; deadline: string }) => {
     const householdId = householdIdRef.current
@@ -122,12 +129,13 @@ export function useSharedModules(user: User) {
 
   return {
     wishes,
-    marketItems,
+    marketBudget,
+    marketExpenses,
     permissions,
     status,
     error,
-    addMarket,
-    toggleMarket,
+    saveMarketBudget,
+    addMarketExpense,
     addWish,
   }
 }
