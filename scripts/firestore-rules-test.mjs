@@ -83,6 +83,9 @@ try {
   await assertFails(getDoc(doc(memberDb, 'users', ownerId, 'monthlyPlans', monthKey, 'transactions', 'expense-one')))
   await assertFails(getDoc(doc(outsiderDb, 'users', ownerId)))
   await assertFails(getDoc(doc(guestDb, 'users', ownerId)))
+  await assertSucceeds(getDoc(doc(outsiderDb, 'householdInvites', 'outsider@example.com')))
+  await assertFails(getDoc(doc(outsiderDb, 'householdInvites', memberEmail)))
+  await assertFails(getDoc(doc(guestDb, 'householdInvites', memberEmail)))
   await assertFails(setDoc(doc(ownerDb, 'users', ownerId, 'monthlyPlans', 'invalid'), {
     salary: 0,
     categories: [],
