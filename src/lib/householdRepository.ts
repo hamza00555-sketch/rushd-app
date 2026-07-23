@@ -33,6 +33,7 @@ import {
   type SharedModule,
 } from './household'
 import { auth, authPersistenceReady, db } from './firebase'
+import { ARABIC_GREGORIAN_LOCALE } from './locale'
 
 export type SharedWish = {
   id: string
@@ -78,7 +79,12 @@ const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const formatActivityTime = (value: unknown) => {
   const date = value instanceof Timestamp ? value.toDate() : value instanceof Date ? value : null
   if (!date) return 'الآن'
-  return date.toLocaleString('ar-SA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return date.toLocaleString(ARABIC_GREGORIAN_LOCALE, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 const insertActivity = async (householdId: string, user: User, action: string, detail: string) => {

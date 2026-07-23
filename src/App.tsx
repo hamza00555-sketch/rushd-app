@@ -469,7 +469,17 @@ function MonthSetup({
         <p>لن نضيف أي مصروفات افتراضية. تبدأ خطتك صفر، وكل حركة تسجلها تكون لك وحدك.</p>
         <form onSubmit={submit}>
           <label><span>اسمك</span><input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label><span>الشهر</span><input type="month" value={monthKey} onChange={(event) => setMonthKey(event.target.value)} /></label>
+          <label>
+            <span>الشهر</span>
+            <input
+              type="month"
+              lang="ar"
+              dir="rtl"
+              aria-label="شهر الخطة"
+              value={monthKey}
+              onChange={(event) => setMonthKey(event.target.value)}
+            />
+          </label>
           <label><span>الراتب الشهري</span><div><input inputMode="decimal" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder="مثلاً 12000"/><b>ريال</b></div></label>
           {(localError || error) && <div className="auth-error" role="alert">{localError || error}</div>}
           <button type="submit" disabled={busy}>{busy ? 'جاري بناء الخطة…' : 'ابدأ حساب الشهر'}</button>
