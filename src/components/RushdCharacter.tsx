@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { Icon } from './Icon'
 
 type Mood = 'calm' | 'happy' | 'thinking' | 'celebrate'
 
@@ -17,11 +18,8 @@ export function RushdCharacter({
   interactive = false,
   onPress,
 }: RushdCharacterProps) {
-  const isHappy = mood === 'happy' || mood === 'celebrate'
-  const isThinking = mood === 'thinking'
-
   return (
-    <div className={`rushd-character-wrap rushd-${size}`}>
+    <div className={`rushd-character-wrap rushd-${size} rushd-mood-${mood}`}>
       {message && (
         <motion.div
           className="rushd-bubble"
@@ -39,22 +37,19 @@ export function RushdCharacter({
         className="rushd-character"
         onClick={onPress}
         disabled={!interactive}
-        animate={{ y: [0, -7, 0], rotate: mood === 'celebrate' ? [0, -4, 4, 0] : 0 }}
-        transition={{
-          y: { duration: 3.5, repeat: Infinity, ease: 'easeInOut' },
-          rotate: { duration: 0.6, repeat: mood === 'celebrate' ? Infinity : 0, repeatDelay: 1.3 },
+        animate={{
+          y: [0, -6, 0],
+          rotate: mood === 'celebrate' ? [0, -3, 3, 0] : [0, 1.2, 0, -1.2, 0],
         }}
-        whileTap={interactive ? { scale: 0.92 } : undefined}
+        transition={{
+          y: { duration: 4.2, repeat: Infinity, ease: 'easeInOut' },
+          rotate: { duration: mood === 'celebrate' ? 1.1 : 7.5, repeat: Infinity, ease: 'easeInOut' },
+        }}
+        whileTap={interactive ? { scale: 0.94 } : undefined}
       >
-        <span className="rushd-glow" />
-        <span className="rushd-orbit" />
-        <span className="rushd-body">
-          <span className={`rushd-eye rushd-eye-right ${isHappy ? 'is-happy' : ''}`} />
-          <span className={`rushd-eye rushd-eye-left ${isThinking ? 'is-thinking' : ''} ${isHappy ? 'is-happy' : ''}`} />
-          <span className={`rushd-mouth ${isHappy ? 'is-happy' : ''}`} />
-          <span className="rushd-highlight" />
-        </span>
-        {mood === 'celebrate' && <span className="rushd-sparkles">✦</span>}
+        <span className="rushd-image-glow" aria-hidden="true" />
+        <img src="/brand/rushd-mascot-v2.png" alt="" width="760" height="688" draggable="false" />
+        {mood === 'celebrate' && <span className="rushd-sparkles"><Icon name="spark" size={19} /></span>}
         {mood === 'thinking' && <span className="rushd-thought">؟</span>}
       </motion.button>
     </div>

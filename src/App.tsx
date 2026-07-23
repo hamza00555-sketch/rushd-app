@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { User } from 'firebase/auth'
+import { Icon, type IconName } from './components/Icon'
 import { RushdCharacter } from './components/RushdCharacter'
 import { useSharedModules, type SharedSyncStatus } from './hooks/useSharedModules'
 import { useMonthlyPlan } from './hooks/useMonthlyPlan'
@@ -35,6 +36,13 @@ const tabMessages: Record<Tab, string> = {
   month: 'غيّر الراتب أو أضف مصروفًا، وأنا أعيد قراءة الخطة فورًا.',
   wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
   market: 'كل مشتريات السوبرماركت تنخصم فورًا، والمتبقي واضح لكل شخص عنده صلاحية.',
+}
+
+const categoryIcons: Record<string, IconName> = {
+  needs: 'home',
+  commitments: 'receipt',
+  future: 'shield',
+  flex: 'spark',
 }
 
 const parseCurrencyInput = (input: string) => {
@@ -99,7 +107,7 @@ function HomeView({
           <b>{snapshot.score}</b>
           <span>مؤشر رُشد</span>
         </motion.div>
-        <button type="button" className="hero-action" onClick={onOpenMonth}>فتح حساب الشهر ←</button>
+        <button type="button" className="hero-action" onClick={onOpenMonth}>فتح حساب الشهر <Icon name="arrowLeft" size={16} /></button>
       </section>
 
       <section className="financial-metrics">
@@ -109,11 +117,11 @@ function HomeView({
       </section>
 
       <section className="section-block intelligence-card">
-        <div className="section-title"><div><span>قراءة رُشد</span><h2>ما الذي يحتاج قرارك؟</h2></div><i className="thinking-dot">✦</i></div>
+        <div className="section-title"><div><span>قراءة رُشد</span><h2>ما الذي يحتاج قرارك؟</h2></div><i className="thinking-dot"><Icon name="spark" size={18} /></i></div>
         <div className="signal-list">
           {signals.map((signal, index) => (
             <motion.article className={`signal-row signal-${signal.level}`} key={signal.title} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.1 }}>
-              <span>{signal.level === 'danger' ? '!' : signal.level === 'watch' ? '◷' : '✓'}</span>
+              <span><Icon name={signal.level === 'danger' ? 'alert' : signal.level === 'watch' ? 'clock' : 'check'} size={17} /></span>
               <div><strong>{signal.title}</strong><p>{signal.body}</p></div>
             </motion.article>
           ))}
@@ -123,14 +131,14 @@ function HomeView({
       {nearestWish ? (
         <section className="section-block">
           <div className="section-title"><div><span>الأقرب الآن</span><h2>{nearestWish.title}</h2></div><b>{wishProgress}%</b></div>
-          <div className="goal-focus-row"><span className="goal-art">{nearestWish.icon}</span><div><strong>{formatSar(nearestWish.saved)} من {formatSar(nearestWish.target)} ريال</strong><ProgressBar value={wishProgress}/><small>{nearestWish.deadline}</small></div></div>
+          <div className="goal-focus-row"><span className="goal-art"><Icon name="heart" size={24} /></span><div><strong>{formatSar(nearestWish.saved)} من {formatSar(nearestWish.target)} ريال</strong><ProgressBar value={wishProgress}/><small>{nearestWish.deadline}</small></div></div>
         </section>
       ) : (
-        <section className="section-block empty-module-card"><span>♡</span><div><strong>لا توجد أمنية مشتركة</strong><p>أضف أول أمنية من صفحة أماني رُشد.</p></div></section>
+        <section className="section-block empty-module-card"><span><Icon name="heart" size={22} /></span><div><strong>لا توجد أمنية مشتركة</strong><p>أضف أول أمنية من صفحة أماني رُشد.</p></div></section>
       )}
 
       <section className="living-summary">
-        <motion.span animate={{ rotate: [0, 18, 0], scale: [1, 1.2, 1] }} transition={{ duration: 2.8, repeat: Infinity }}>✦</motion.span>
+        <motion.span animate={{ rotate: [0, 18, 0], scale: [1, 1.12, 1] }} transition={{ duration: 2.8, repeat: Infinity }}><Icon name="spark" size={23} /></motion.span>
         <div>
           <strong>ملخص البيت</strong>
           <p>{marketRemaining === null ? 'ميزانية السوبرماركت لهذا الشهر لم تُحدّد بعد.' : marketRemaining >= 0 ? `باقي ${formatMarketSar(marketRemaining)} ريال من ميزانية السوبرماركت.` : `ميزانية السوبرماركت متجاوزة بـ ${formatMarketSar(Math.abs(marketRemaining))} ريال.`}</p>
@@ -236,7 +244,7 @@ function MonthView({
             const status = category.spent > category.limit ? 'danger' : usage >= 80 ? 'watch' : 'good'
             return (
               <motion.article className={`budget-category ${status}`} key={category.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.07 }}>
-                <span className={`category-icon ${category.tone}`}>{category.icon}</span>
+                <span className={`category-icon ${category.tone}`}><Icon name={categoryIcons[category.id] ?? 'wallet'} size={20} /></span>
                 <div className="category-body">
                   <div><strong>{category.title}</strong><b>{formatSar(category.spent)} / {formatSar(category.limit)}</b></div>
                   <ProgressBar value={usage} tone={status}/>
@@ -259,7 +267,7 @@ function MonthView({
             </select>
           </div>
           {formError && <div className="inline-form-error" role="alert">{formError}</div>}
-          <button type="submit" disabled={saving}>＋ {saving ? 'جاري الحفظ…' : 'تسجيل المصروف'}</button>
+          <button type="submit" disabled={saving}><Icon name="plus" size={17} /> {saving ? 'جاري الحفظ…' : 'تسجيل المصروف'}</button>
         </form>
       </section>
 
@@ -275,7 +283,7 @@ function MonthView({
         {transactions.length === 0 && <div className="transaction-empty">ما سجلت أي مصروف في هذا الشهر.</div>}
         {transactions.slice(0, 12).map((transaction) => {
           const category = categories.find((item) => item.id === transaction.categoryId)
-          return <article className="transaction-row" key={transaction.id}><span className="transaction-icon">{category?.icon ?? '•'}</span><div><strong>{transaction.title}</strong><small>{category?.title} · {formatTransactionDate(transaction.occurredAt)}</small></div><b>-{formatSar(transaction.amount)}</b></article>
+          return <article className="transaction-row" key={transaction.id}><span className="transaction-icon"><Icon name={categoryIcons[transaction.categoryId] ?? 'receipt'} size={18} /></span><div><strong>{transaction.title}</strong><small>{category?.title} · {formatTransactionDate(transaction.occurredAt)}</small></div><b>-{formatSar(transaction.amount)}</b></article>
         })}
       </section>
     </motion.main>
@@ -329,17 +337,17 @@ function WishesView({
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className="goal-intro wishes-intro"><span>أماني رُشد</span><h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1><p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p></section>
       {access === 'none' ? (
-        <section className="module-empty-state"><span>🔒</span><strong>هذه الوحدة خاصة</strong><p>مالك البيت لم يفعّل لك الوصول إلى الأماني المشتركة.</p></section>
+        <section className="module-empty-state"><span><Icon name="lock" size={24} /></span><strong>هذه الوحدة خاصة</strong><p>مالك البيت لم يفعّل لك الوصول إلى الأماني المشتركة.</p></section>
       ) : (
         <>
           <div className="goals-list">
-            {wishes.length === 0 && <section className="module-empty-state"><span>♡</span><strong>ما عندكم أماني مشتركة بعد</strong><p>ابدأ بأول أمنية وشاركها مع العائلة.</p></section>}
+            {wishes.length === 0 && <section className="module-empty-state"><span><Icon name="heart" size={24} /></span><strong>ما عندكم أماني مشتركة بعد</strong><p>ابدأ بأول أمنية وشاركها مع العائلة.</p></section>}
             {wishes.map((wish, index) => {
               const value = getSpentPercentage(wish.saved, wish.target)
-              return <motion.article className="full-goal-card wish-card" key={wish.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}><span className="goal-emoji">{wish.icon}</span><div><div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div><p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال · {wish.owner}</p><ProgressBar value={value}/><small>{wish.deadline}</small></div></motion.article>
+              return <motion.article className="full-goal-card wish-card" key={wish.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}><span className="goal-emoji"><Icon name="heart" size={25} /></span><div><div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div><p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال · {wish.owner}</p><ProgressBar value={value}/><small>{wish.deadline}</small></div></motion.article>
             })}
           </div>
-          {access === 'edit' && !formOpen && <button type="button" className="primary-button" onClick={() => setFormOpen(true)}>＋ إضافة أمنية مشتركة</button>}
+          {access === 'edit' && !formOpen && <button type="button" className="primary-button" onClick={() => setFormOpen(true)}><Icon name="plus" size={17} /> إضافة أمنية مشتركة</button>}
           {access === 'view' && <div className="view-only-note">صلاحيتك الحالية: عرض فقط</div>}
           {formOpen && (
             <form className="shared-entry-form" onSubmit={submit}>
@@ -489,7 +497,7 @@ function MarketView({
 
           {budget && access === 'edit' && (
             <form className="section-block market-deduction-form" onSubmit={submitExpense}>
-              <div className="section-title"><div><span>خصم سريع</span><h2>سجّل قيمة المشتريات</h2></div><i aria-hidden="true">−</i></div>
+              <div className="section-title"><div><span>خصم سريع</span><h2>سجّل قيمة المشتريات</h2></div><i aria-hidden="true"><Icon name="minus" size={20} /></i></div>
               <label className="market-form-label"><span>المبلغ المدفوع</span><div className="market-amount-input"><input inputMode="decimal" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} placeholder="0" aria-label="قيمة مشتريات السوبرماركت" /><b>ريال</b></div></label>
               <label className="market-form-label"><span>ملاحظة — اختيارية</span><input value={expenseTitle} onChange={(event) => setExpenseTitle(event.target.value)} placeholder="مثلاً بنده أو مشتريات الأسبوع" aria-label="وصف مشتريات السوبرماركت" /></label>
               {expenseError && <div className="inline-form-error" role="alert">{expenseError}</div>}
@@ -500,10 +508,10 @@ function MarketView({
           {budget && (
             <section className="section-block market-ledger">
               <div className="section-title"><div><span>حركة الميزانية</span><h2>آخر المشتريات</h2></div><b>{expenses.length}</b></div>
-              {expenses.length === 0 && <div className="module-empty-state compact"><span>🧾</span><strong>ما فيه مشتريات مسجلة</strong><p>أول مبلغ تسجلونه سيظهر هنا ويُخصم من الميزانية.</p></div>}
+              {expenses.length === 0 && <div className="module-empty-state compact"><span><Icon name="receipt" size={23} /></span><strong>ما فيه مشتريات مسجلة</strong><p>أول مبلغ تسجلونه سيظهر هنا ويُخصم من الميزانية.</p></div>}
               {expenses.map((expense, index) => (
                 <motion.article className="market-expense-row" key={expense.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}>
-                  <span aria-hidden="true">🛒</span>
+                  <span aria-hidden="true"><Icon name="cart" size={19} /></span>
                   <div><strong>{expense.title}</strong><small>{expense.owner} · {expense.dateLabel}</small></div>
                   <b>−{formatMarketSar(expense.amount)}</b>
                 </motion.article>
@@ -564,8 +572,8 @@ function MonthSetup({
     <div className="app-canvas setup-canvas">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
       <main className="month-setup-card">
-        <div className="setup-topline"><span className="auth-logo">ر</span><button type="button" onClick={() => void onLogout()}>تسجيل الخروج</button></div>
-        <RushdCharacter mood="happy" size="md" message="أول خطوة بسيطة: اسمك، راتبك، وبعدها أبني لك شهرًا نظيفًا بدون بيانات جاهزة." />
+        <div className="setup-topline"><span className="auth-logo"><img src="/icons/icon-192.png" alt="" width="44" height="44" /></span><button type="button" onClick={() => void onLogout()}><Icon name="logout" size={15} /> تسجيل الخروج</button></div>
+        <RushdCharacter mood="happy" size="lg" message="أول خطوة بسيطة: اسمك، راتبك، وبعدها أبني لك شهرًا نظيفًا بدون بيانات جاهزة." />
         <span className="setup-eyebrow">تهيئة حساب الشهر</span>
         <h1>خلّنا نبني {formatMonthLabel(monthKey)}.</h1>
         <p>لن نضيف أي مصروفات افتراضية. تبدأ خطتك صفر، وكل حركة تسجلها تكون لك وحدك.</p>
@@ -701,7 +709,7 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
       <div className="phone-app">
         <header className="topbar">
           <div className="profile"><span className="avatar">{initial}</span><div><small>{greeting()}</small><strong>{safeName}</strong></div></div>
-          <button type="button" className="header-signout" onClick={() => void onLogout()} aria-label="تسجيل الخروج">خروج</button>
+          <button type="button" className="header-signout" onClick={() => void onLogout()} aria-label="تسجيل الخروج"><Icon name="logout" size={16} /><span>خروج</span></button>
         </header>
         <div className="character-dock"><RushdCharacter mood={mood} size="sm" message={message} interactive onPress={pressCharacter}/></div>
         {(monthly.error || shared.error) && <div className="app-inline-alert" role="alert">{monthly.error || shared.error}</div>}
@@ -732,10 +740,10 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
           )}
         </AnimatePresence>
         <nav className="bottom-nav" aria-label="التنقل الرئيسي">
-          <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')} aria-current={tab === 'home' ? 'page' : undefined}><span>⌂</span><small>الرئيسية</small></button>
-          <button type="button" className={tab === 'month' ? 'active' : ''} onClick={() => changeTab('month')} aria-current={tab === 'month' ? 'page' : undefined}><span>◫</span><small>حساب الشهر</small></button>
-          <button type="button" className={tab === 'wishes' ? 'active' : ''} onClick={() => changeTab('wishes')} aria-current={tab === 'wishes' ? 'page' : undefined}><span>♡</span><small>الأماني</small></button>
-          <button type="button" className={tab === 'market' ? 'active' : ''} onClick={() => changeTab('market')} aria-current={tab === 'market' ? 'page' : undefined}><span>🛒</span><small>السوبرماركت</small></button>
+          <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')} aria-current={tab === 'home' ? 'page' : undefined}><span><Icon name="home" size={21} /></span><small>الرئيسية</small></button>
+          <button type="button" className={tab === 'month' ? 'active' : ''} onClick={() => changeTab('month')} aria-current={tab === 'month' ? 'page' : undefined}><span><Icon name="month" size={21} /></span><small>حساب الشهر</small></button>
+          <button type="button" className={tab === 'wishes' ? 'active' : ''} onClick={() => changeTab('wishes')} aria-current={tab === 'wishes' ? 'page' : undefined}><span><Icon name="heart" size={21} /></span><small>الأماني</small></button>
+          <button type="button" className={tab === 'market' ? 'active' : ''} onClick={() => changeTab('market')} aria-current={tab === 'market' ? 'page' : undefined}><span><Icon name="cart" size={21} /></span><small>السوبرماركت</small></button>
         </nav>
       </div>
     </div>

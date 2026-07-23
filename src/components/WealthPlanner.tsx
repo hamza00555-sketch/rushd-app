@@ -19,6 +19,7 @@ import {
 } from '../lib/wealthRepository'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
 import { useDialog } from '../hooks/useDialog'
+import { Icon } from './Icon'
 
 export function WealthPlanner({ onClose, user }: { onClose: () => void; user: User }) {
   const [accounts, setAccounts] = useState<InvestmentAccount[]>([])
@@ -130,7 +131,7 @@ export function WealthPlanner({ onClose, user }: { onClose: () => void; user: Us
   return (
     <motion.section className="wealth-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <motion.div ref={dialogRef} className="wealth-sheet" role="dialog" aria-modal="true" aria-labelledby="wealth-title" tabIndex={-1} initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
-        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق الثروة والأهداف">×</button>
+        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق الثروة والأهداف"><Icon name="close" size={21} /></button>
         <header className="wealth-header">
           <div><span>الاستثمارات والأهداف</span><h1 id="wealth-title">خلّ فلوسك تعرف وين رايحة.</h1><p>كل مساهمة شهرية مرتبطة بهدف وموعد واضح، مو مجرد رقم في محفظة.</p></div>
           <div className="wealth-character"><RushdCharacter mood="happy" size="sm" message={insight}/></div>
@@ -149,7 +150,7 @@ export function WealthPlanner({ onClose, user }: { onClose: () => void; user: Us
           {tab === 'overview' && (
             <motion.main key="overview" className="wealth-content" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
               {!loading && accounts.length === 0 && goals.length === 0 && (
-                <section className="wealth-empty-launch"><span>◎</span><h2>ابدأ من الصفر، على نظافة.</h2><p>أضف أول محفظة أو هدف مالي. ما فيه أي أرقام تجريبية مختلطة بحسابك.</p><div><button type="button" onClick={() => setTab('accounts')}>إضافة محفظة</button><button type="button" onClick={() => setTab('goals')}>إضافة هدف</button></div></section>
+                <section className="wealth-empty-launch"><span><Icon name="target" size={28} /></span><h2>ابدأ من الصفر، على نظافة.</h2><p>أضف أول محفظة أو هدف مالي. ما فيه أي أرقام تجريبية مختلطة بحسابك.</p><div><button type="button" onClick={() => setTab('accounts')}>إضافة محفظة</button><button type="button" onClick={() => setTab('goals')}>إضافة هدف</button></div></section>
               )}
               <section className="wealth-hero-card">
                 <div><span>إجمالي ما بنيته</span><strong>{formatSar(snapshot.totalBalance)} <small>ريال</small></strong><p>تضيف {formatSar(snapshot.totalMonthlyContribution)} ريال شهريًا بشكل منتظم.</p></div>
@@ -170,7 +171,7 @@ export function WealthPlanner({ onClose, user }: { onClose: () => void; user: Us
 
               {snapshot.closestGoal && (
                 <section className="closest-goal-card">
-                  <span>{snapshot.closestGoal.icon}</span><div><small>أقرب هدف</small><h2>{snapshot.closestGoal.name}</h2><p>الوصول المتوقع: {snapshot.closestGoal.projectedDate}</p></div><b>{snapshot.closestGoal.progress}%</b>
+                  <span><Icon name="target" size={23} /></span><div><small>أقرب هدف</small><h2>{snapshot.closestGoal.name}</h2><p>الوصول المتوقع: {snapshot.closestGoal.projectedDate}</p></div><b>{snapshot.closestGoal.progress}%</b>
                 </section>
               )}
             </motion.main>
@@ -183,10 +184,10 @@ export function WealthPlanner({ onClose, user }: { onClose: () => void; user: Us
                 <div className="investment-list">
                   {accounts.length === 0 && <div className="wealth-list-empty">ما عندك محافظ بعد.</div>}
                   {accounts.map((account) => (
-                    <article key={account.id}><span>{account.icon}</span><div><strong>{account.name}</strong><small>مساهمة {formatSar(account.monthlyContribution)} · عائد تقديري {account.annualReturn}%</small></div><b>{formatSar(account.balance)}</b></article>
+                    <article key={account.id}><span><Icon name="wallet" size={20} /></span><div><strong>{account.name}</strong><small>مساهمة {formatSar(account.monthlyContribution)} · عائد تقديري {account.annualReturn}%</small></div><b>{formatSar(account.balance)}</b></article>
                   ))}
                 </div>
-                <button className="wealth-primary-button" onClick={() => { setError(''); setAccountFormOpen(true) }}>＋ إضافة محفظة</button>
+                <button className="wealth-primary-button" onClick={() => { setError(''); setAccountFormOpen(true) }}><Icon name="plus" size={17} /> إضافة محفظة</button>
               </section>
             </motion.main>
           )}
@@ -199,10 +200,10 @@ export function WealthPlanner({ onClose, user }: { onClose: () => void; user: Us
                   {goals.length === 0 && <div className="wealth-list-empty">ما عندك أهداف مالية بعد.</div>}
                   {goals.map((goal) => {
                     const projection = projectGoal(goal)
-                    return <article key={goal.id}><span className="goal-plan-icon">{goal.icon}</span><div className="goal-plan-copy"><div><strong>{goal.name}</strong><b>{projection.progress}%</b></div><p>{formatSar(goal.saved)} من {formatSar(goal.target)} · {projection.projectedDate}</p><div className="wealth-progress"><i style={{ width: `${projection.progress}%` }}/></div>{goal.linkedWish && <small>مرتبط بأمنية: {goal.linkedWish}</small>}</div><button disabled={busy || projection.status === 'complete'} onClick={() => void contribute(goal, 250)}>+250</button></article>
+                    return <article key={goal.id}><span className="goal-plan-icon"><Icon name="target" size={20} /></span><div className="goal-plan-copy"><div><strong>{goal.name}</strong><b>{projection.progress}%</b></div><p>{formatSar(goal.saved)} من {formatSar(goal.target)} · {projection.projectedDate}</p><div className="wealth-progress"><i style={{ width: `${projection.progress}%` }}/></div>{goal.linkedWish && <small>مرتبط بأمنية: {goal.linkedWish}</small>}</div><button disabled={busy || projection.status === 'complete'} onClick={() => void contribute(goal, 250)}>+250</button></article>
                   })}
                 </div>
-                <button className="wealth-primary-button" onClick={() => { setError(''); setGoalFormOpen(true) }}>＋ إضافة هدف مالي</button>
+                <button className="wealth-primary-button" onClick={() => { setError(''); setGoalFormOpen(true) }}><Icon name="plus" size={17} /> إضافة هدف مالي</button>
               </section>
             </motion.main>
           )}

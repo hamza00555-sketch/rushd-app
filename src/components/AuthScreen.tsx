@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
+import { Icon } from './Icon'
 import { RushdCharacter } from './RushdCharacter'
 import { signInToRushd, signUpToRushd } from '../lib/householdRepository'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
@@ -48,14 +49,18 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
     <main className="auth-screen">
       <motion.section className="auth-welcome" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <div className="auth-brand">
-          <span className="auth-logo" aria-hidden="true">ر</span>
+          <span className="auth-logo" aria-hidden="true"><img src="/icons/icon-192.png" alt="" width="44" height="44" /></span>
           <div><strong>رُشد</strong><small>خطتك أوضح</small></div>
         </div>
-        <div className="auth-character"><RushdCharacter mood="happy" size="md" message="بياناتك المالية لك وحدك. خلّنا نبدأ بحساب آمن." /></div>
+        <div className="auth-character"><RushdCharacter mood="happy" size="lg" message="أرتّب أرقامك بهدوء، وبياناتك تظل لك وحدك." /></div>
         <div className="auth-copy">
           <span>مساحتك المالية الخاصة</span>
           <h1>{mode === 'signin' ? 'أهلًا بعودتك.' : 'ابدأ شهرًا مرتبًا من أول ريال.'}</h1>
           <p>سجّل الدخول للوصول إلى خططك، مصروفاتك، وأدوات العائلة من أي جهاز.</p>
+        </div>
+        <div className="auth-trust-row" aria-label="مزايا الحماية والمزامنة">
+          <span><Icon name="shield" size={16} /> بيانات مالية خاصة</span>
+          <span><Icon name="spark" size={16} /> مزامنة تلقائية</span>
         </div>
 
         <div className="auth-tabs" role="tablist" aria-label="نوع الدخول">

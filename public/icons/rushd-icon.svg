@@ -1,29 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="أيقونة رُشد">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="أيقونة رُشد">
   <defs>
-    <linearGradient id="bg" x1="56" y1="36" x2="460" y2="482" gradientUnits="userSpaceOnUse">
+    <linearGradient id="background" x1="8" y1="3" x2="57" y2="62" gradientUnits="userSpaceOnUse">
       <stop stop-color="#fffaf4"/>
-      <stop offset="1" stop-color="#f1e8dd"/>
+      <stop offset="1" stop-color="#f3e7f4"/>
     </linearGradient>
-    <radialGradient id="orb" cx="0" cy="0" r="1" gradientTransform="translate(197 171) rotate(47) scale(272)" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#a79fe9"/>
-      <stop offset=".48" stop-color="#5b57d6"/>
-      <stop offset="1" stop-color="#1f1c5b"/>
+    <radialGradient id="orb" cx="0" cy="0" r="1" gradientTransform="translate(25 20) rotate(48) scale(36)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b8afe8"/>
+      <stop offset=".55" stop-color="#6b5fc7"/>
+      <stop offset="1" stop-color="#3d356f"/>
     </radialGradient>
-    <filter id="shadow" x="92" y="80" width="338" height="346" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#1f1c5b" flood-opacity=".25"/>
-    </filter>
+    <linearGradient id="orbit" x1="8" y1="27" x2="55" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd6b7"/>
+      <stop offset=".55" stop-color="#f6b184"/>
+      <stop offset="1" stop-color="#ffcfaa"/>
+    </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="118" fill="url(#bg)"/>
-  <circle cx="420" cy="94" r="62" fill="#ffc49d" fill-opacity=".42"/>
-  <circle cx="76" cy="412" r="88" fill="#a79fe9" fill-opacity=".18"/>
-  <g filter="url(#shadow)">
-    <circle cx="256" cy="256" r="142" fill="url(#orb)"/>
-    <ellipse cx="217" cy="203" rx="39" ry="25" transform="rotate(-26 217 203)" fill="white" fill-opacity=".2"/>
-  </g>
-  <path d="M98 287c46 60 129 88 221 66 48-12 87-36 111-65" fill="none" stroke="#ffc49d" stroke-width="16" stroke-linecap="round"/>
-  <path d="M102 282c-19-24-21-45-7-60" fill="none" stroke="#ffc49d" stroke-width="16" stroke-linecap="round"/>
-  <circle cx="217" cy="253" r="12" fill="#171442"/>
-  <circle cx="295" cy="253" r="12" fill="#171442"/>
-  <path d="M226 302c18 18 42 18 60 0" fill="none" stroke="#171442" stroke-width="10" stroke-linecap="round"/>
-  <path d="M410 128l8 20 20 8-20 8-8 20-8-20-20-8 20-8 8-20Z" fill="#ff6f61"/>
+  <rect width="64" height="64" rx="15" fill="url(#background)"/>
+  <ellipse cx="32" cy="35" rx="27" ry="11" fill="none" stroke="#e9a97d" stroke-width="4.5" opacity=".68"/>
+  <circle cx="32" cy="33" r="20.5" fill="url(#orb)"/>
+  <ellipse cx="25" cy="25" rx="7" ry="4" transform="rotate(-25 25 25)" fill="#fff" opacity=".18"/>
+  <circle cx="26" cy="32" r="2.2" fill="#252044"/>
+  <circle cx="38" cy="32" r="2.2" fill="#252044"/>
+  <path d="M27.5 39c3 2.7 6 2.7 9 0" fill="none" stroke="#252044" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M6.5 35.5c6 8.5 17.5 12.3 29.5 11 10.2-1 17.4-5.2 21.5-10.5" fill="none" stroke="url(#orbit)" stroke-width="4.8" stroke-linecap="round"/>
+  <path d="m51 8 1.5 4.2 4.2 1.5-4.2 1.5L51 19.4l-1.5-4.2-4.2-1.5 4.2-1.5Z" fill="#ef7c72"/>
 </svg>
