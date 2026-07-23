@@ -111,6 +111,13 @@ try {
     createdAt: serverTimestamp(),
   })
 
+  const missingInviteSnapshot = await getDoc(doc(ownerDb, 'householdInvites', ownerEmail))
+  assert.equal(
+    missingInviteSnapshot.exists(),
+    false,
+    'A new user could not verify that no household invite exists.',
+  )
+
   await setDoc(doc(ownerDb, 'households', householdId), {
     name: 'Rushd launch smoke household',
     ownerId: ownerUid,

@@ -141,13 +141,15 @@ service cloud.firestore {
         && request.resource.data.email == inviteEmail
         && request.resource.data.invitedBy == request.auth.uid
         && isHouseholdOwner(request.resource.data.householdId);
-      allow read: if signedIn()
-        && (isHouseholdOwner(resource.data.householdId)
-          || request.auth.token.email == resource.data.email);
+      allow get: if signedIn()
+        && (request.auth.token.email == inviteEmail
+          || isHouseholdOwner(resource.data.householdId));
+      allow list: if signedIn()
+        && isHouseholdOwner(resource.data.householdId);
       allow update: if signedIn() && isHouseholdOwner(resource.data.householdId);
       allow delete: if signedIn()
         && (isHouseholdOwner(resource.data.householdId)
-          || request.auth.token.email == resource.data.email);
+          || request.auth.token.email == inviteEmail);
     }
   }
 }
