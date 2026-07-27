@@ -7,33 +7,36 @@ import { useSharedModules, type SharedSyncStatus } from './hooks/useSharedModule
 import { useMonthlyPlan } from './hooks/useMonthlyPlan'
 import { formatSar, getSpentPercentage } from './lib/finance'
 import {
-  buildSuggestedBudget,
   getFinancialSignals,
   getFinancialSnapshot,
   type BudgetCategory,
 } from './lib/financialEngine'
 import {
   formatMonthLabel,
-  formatTransactionDate,
   getCurrentMonthKey,
-  getNextMonthKey,
-  type MonthlyTransaction,
+  type MonthlyPlan,
 } from './lib/monthlyPlanRepository'
 import type { AccessLevel } from './lib/household'
 import type { SharedMarketBudget, SharedMarketExpense, SharedWish } from './lib/householdRepository'
+import {
+  getRatibiIncomeTotal,
+  getRatibiWishesBudget,
+  parseRatibiBundle,
+  type RatibiBudget,
+  type RatibiFinanceBundleV1,
+} from './lib/ratibiImport'
 
 type Tab = 'home' | 'month' | 'wishes' | 'market'
 
 type AppProps = {
   user: User
   displayName: string
-  onSaveDisplayName: (name: string) => Promise<void>
   onLogout: () => Promise<void>
 }
 
 const tabMessages: Record<Tab, string> = {
   home: 'هذه قراءة شهرِك الحالي، وكل رقم هنا محفوظ في حسابك الخاص.',
-  month: 'غيّر الراتب أو أضف مصروفًا، وأنا أعيد قراءة الخطة فورًا.',
+  month: 'انسخ بياناتك من راتبي، وأنا أرتّب قراءتها هنا بدون إدخال يدوي.',
   wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
   market: 'كل مشتريات السوبرماركت تنخصم فورًا، والمتبقي واضح لكل شخص عنده صلاحية.',
 }
@@ -148,156 +151,211 @@ function HomeView({
   )
 }
 
-const buildWeeklyBars = (transactions: MonthlyTransaction[]) => {
-  const weeks = [0, 0, 0, 0, 0, 0]
-  const now = Date.now()
-  transactions.forEach((transaction) => {
-    const ageInWeeks = Math.floor(Math.max(0, now - transaction.occurredAt.getTime()) / (7 * 24 * 60 * 60 * 1000))
-    const index = 5 - ageInWeeks
-    if (index >= 0 && index < weeks.length) weeks[index] += transaction.amount
-  })
-  const max = Math.max(...weeks, 1)
-  return weeks.map((amount) => amount <= 0 ? 0 : Math.max(8, Math.round((amount / max) * 100)))
+function EmptyHomeView({ onOpenMonth }: { onOpenMonth: () => void }) {
+  return (
+    <motion.main className="screen-content" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+      <section className="financial-hero empty-financial-hero">
+        <div className="hero-copy">
+          <span>رُشد + راتبي</span>
+          <strong>بياناتك لسه ما وصلت.</strong>
+          <p>صدّر ملخصك من راتبي، وبعدها رُشد يرتب الالتزامات والأهداف والميزانيات بدون ما تعيد إدخال أي رقم.</p>
+        </div>
+        <motion.div className="health-score empty-score" animate={{ y: [0, -5, 0] }} transition={{ duration: 3.8, repeat: Infinity }}>
+          <Icon name="spark" size={28} />
+          <span>جاهز للربط</span>
+        </motion.div>
+        <button type="button" className="hero-action" onClick={onOpenMonth}>فتح حساب الشهر <Icon name="arrowLeft" size={16} /></button>
+      </section>
+
+      <section className="section-block ratibi-empty-explainer">
+        <div className="section-title"><div><span>مرة واحدة</span><h2>كيف يوصل ملخصك؟</h2></div></div>
+        <div><span>١</span><p>من تطبيق راتبي اضغط «إرسال إلى رُشد».</p></div>
+        <div><span>٢</span><p>ارجع لرُشد واضغط «استيراد البيانات».</p></div>
+        <div><span>٣</span><p>تظهر قراءتك مرتبة وتُحفظ في حسابك الخاص.</p></div>
+      </section>
+    </motion.main>
+  )
 }
 
 function MonthView({
-  monthKey,
-  setMonthKey,
-  salary,
-  salaryDraft,
-  setSalaryDraft,
-  categories,
-  transactions,
-  onRebuild,
-  onAddExpense,
+  plan,
+  onImport,
   saving,
-  fromCache,
-  hasPendingWrites,
 }: {
-  monthKey: string
-  setMonthKey: (value: string) => void
-  salary: number
-  salaryDraft: string
-  setSalaryDraft: (value: string) => void
-  categories: BudgetCategory[]
-  transactions: MonthlyTransaction[]
-  onRebuild: (event: FormEvent<HTMLFormElement>) => void
-  onAddExpense: (title: string, amount: number, categoryId: string) => Promise<void>
+  plan: MonthlyPlan | null
+  onImport: (bundle: RatibiFinanceBundleV1) => Promise<void>
   saving: boolean
-  fromCache: boolean
-  hasPendingWrites: boolean
 }) {
-  const snapshot = getFinancialSnapshot(salary, categories)
-  const [expenseTitle, setExpenseTitle] = useState('')
-  const [expenseAmount, setExpenseAmount] = useState('')
-  const [expenseCategory, setExpenseCategory] = useState(categories[0]?.id ?? 'needs')
-  const [formError, setFormError] = useState('')
-  const weeklyBars = useMemo(() => buildWeeklyBars(transactions), [transactions])
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pasteValue, setPasteValue] = useState('')
+  const [importError, setImportError] = useState('')
+  const [importNotice, setImportNotice] = useState('')
+  const bundle = plan?.ratibi ?? null
+  const snapshot = plan ? getFinancialSnapshot(plan.salary, plan.categories) : null
+  const syncLabel = plan?.hasPendingWrites
+    ? 'جاري الحفظ…'
+    : plan?.fromCache
+      ? 'نسخة محفوظة على الجهاز'
+      : bundle
+        ? `آخر تحديث ${new Date(bundle.exportedAt).toLocaleString('ar-SA', { dateStyle: 'medium', timeStyle: 'short' })}`
+        : 'بانتظار أول استيراد من راتبي'
 
-  useEffect(() => {
-    if (!categories.some((category) => category.id === expenseCategory)) {
-      setExpenseCategory(categories[0]?.id ?? 'needs')
-    }
-  }, [categories, expenseCategory])
-
-  const submitExpense = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const amount = Number(expenseAmount)
-    if (!expenseTitle.trim() || !Number.isFinite(amount) || amount <= 0) {
-      setFormError('اكتب اسم المصروف ومبلغًا صحيحًا.')
-      return
-    }
-    setFormError('')
+  const importText = async (value: string) => {
+    setImportError('')
+    setImportNotice('')
     try {
-      await onAddExpense(expenseTitle.trim(), amount, expenseCategory)
-      setExpenseTitle('')
-      setExpenseAmount('')
+      const nextBundle = parseRatibiBundle(value)
+      await onImport(nextBundle)
+      setPasteOpen(false)
+      setPasteValue('')
+      setImportNotice(`تم تحديث ${formatMonthLabel(nextBundle.month)} من تطبيق راتبي.`)
+      return true
     } catch (cause: unknown) {
-      setFormError(cause instanceof Error ? cause.message : 'تعذر تسجيل المصروف.')
+      setImportError(cause instanceof Error ? cause.message : 'تعذر استيراد بيانات راتبي.')
+      return false
     }
   }
 
-  const syncLabel = hasPendingWrites ? 'جاري الحفظ…' : fromCache ? 'نسخة محفوظة على الجهاز' : 'محفوظ في حسابك'
+  const importFromClipboard = async () => {
+    setImportError('')
+    setImportNotice('')
+    if (!navigator.clipboard?.readText) {
+      setPasteOpen(true)
+      setImportError('المتصفح لا يسمح بقراءة الحافظة مباشرة. الصق النص المنسوخ هنا.')
+      return
+    }
+    try {
+      const value = await navigator.clipboard.readText()
+      const imported = await importText(value)
+      if (!imported) setPasteOpen(true)
+    } catch {
+      setPasteOpen(true)
+      setImportError('تعذر قراءة الحافظة. الصق النص المنسوخ من راتبي هنا.')
+    }
+  }
+
+  const submitPastedBundle = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void importText(pasteValue)
+  }
 
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="month-switcher" aria-label="اختيار الشهر">
-        <div><span>الشهر المفتوح</span><strong>{formatMonthLabel(monthKey)}</strong><small>{syncLabel}</small></div>
-        <input type="month" value={monthKey} onChange={(event) => setMonthKey(event.target.value)} aria-label="اختيار شهر الخطة" />
-        <button type="button" onClick={() => setMonthKey(getNextMonthKey(monthKey))}>شهر جديد</button>
-      </section>
-
-      <section className="month-command-card">
-        <span>حساب الشهر</span><h1>راتبك يدخل مرة، والخطة تتغير فورًا.</h1>
-        <form className="salary-form" onSubmit={onRebuild}>
-          <label><small>الراتب الشهري</small><div><input inputMode="decimal" value={salaryDraft} onChange={(event) => setSalaryDraft(event.target.value)} aria-label="الراتب الشهري"/><b>ريال</b></div></label>
-          <button type="submit" disabled={saving}>{saving ? 'جاري الحفظ…' : 'بناء الخطة'}</button>
-        </form>
-        <div className="month-kpis"><div><b>{formatSar(snapshot.spent)}</b><span>المصروف</span></div><div><b>{formatSar(snapshot.remaining)}</b><span>المتبقي</span></div><div><b>{snapshot.score}%</b><span>الصحة المالية</span></div></div>
-      </section>
-
-      <section className="section-block">
-        <div className="section-title"><div><span>توزيع ذكي</span><h2>ميزانيات الشهر</h2></div><span className={`plan-status ${snapshot.overspent ? 'danger' : ''}`}>{snapshot.overspent ? 'يحتاج تدخل' : 'متوازن'}</span></div>
-        <div className="budget-category-list">
-          {categories.map((category, index) => {
-            const usage = getSpentPercentage(category.spent, category.limit)
-            const status = category.spent > category.limit ? 'danger' : usage >= 80 ? 'watch' : 'good'
-            return (
-              <motion.article className={`budget-category ${status}`} key={category.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.07 }}>
-                <span className={`category-icon ${category.tone}`}><Icon name={categoryIcons[category.id] ?? 'wallet'} size={20} /></span>
-                <div className="category-body">
-                  <div><strong>{category.title}</strong><b>{formatSar(category.spent)} / {formatSar(category.limit)}</b></div>
-                  <ProgressBar value={usage} tone={status}/>
-                  <small>{status === 'danger' ? `تجاوزت بـ ${formatSar(category.spent - category.limit)} ريال` : `متبقي ${formatSar(Math.max(0, category.limit - category.spent))} ريال`}</small>
-                </div>
-              </motion.article>
-            )
-          })}
+      <section className="ratibi-import-card">
+        <div className="ratibi-connection-state">
+          <span><Icon name={bundle ? 'check' : 'spark'} size={16} /></span>
+          <b>{bundle ? 'متصل بآخر نسخة من راتبي' : 'جاهز للربط مع راتبي'}</b>
         </div>
+        <span>ملخص الشهر</span>
+        <h1>{bundle ? `${formatMonthLabel(bundle.month)} مرتّب وجاهز.` : 'بياناتك تبدأ من راتبي، مو من إدخالات جديدة.'}</h1>
+        <p>{bundle
+          ? 'رُشد قرأ الدخل والالتزامات والأهداف والميزانيات والحسابات ورتّبها لك في مكان واحد.'
+          : 'من تطبيق راتبي اضغط «إرسال إلى رُشد»، ثم ارجع واضغط الزر هنا. لا تحتاج تكتب راتبك أو التزاماتك مرة ثانية.'}</p>
+        <button type="button" className="ratibi-import-button" onClick={() => void importFromClipboard()} disabled={saving}>
+          <Icon name="spark" size={19} />
+          {saving ? 'جاري قراءة البيانات…' : bundle ? 'تحديث البيانات من راتبي' : 'استيراد البيانات من راتبي'}
+        </button>
+        <small><Icon name="shield" size={14} /> نقرأ الحافظة فقط عند ضغطك، ولا نضع بياناتك في الرابط أو سجلات المتصفح.</small>
+        <div className="ratibi-sync-label">{syncLabel}</div>
       </section>
 
-      <section className="section-block expense-entry-card">
-        <div className="section-title"><div><span>تسجيل سريع</span><h2>أضف مصروفًا</h2></div></div>
-        <form className="expense-form" onSubmit={submitExpense}>
-          <input placeholder="اسم المصروف" value={expenseTitle} onChange={(event) => setExpenseTitle(event.target.value)} aria-label="اسم المصروف"/>
-          <div className="expense-form-row">
-            <input inputMode="decimal" placeholder="المبلغ" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} aria-label="مبلغ المصروف"/>
-            <select value={expenseCategory} onChange={(event) => setExpenseCategory(event.target.value)} aria-label="فئة المصروف">
-              {categories.map((category) => <option value={category.id} key={category.id}>{category.title}</option>)}
-            </select>
-          </div>
-          {formError && <div className="inline-form-error" role="alert">{formError}</div>}
-          <button type="submit" disabled={saving}><Icon name="plus" size={17} /> {saving ? 'جاري الحفظ…' : 'تسجيل المصروف'}</button>
+      {importNotice && <div className="ratibi-import-notice" role="status"><Icon name="check" size={17} /> {importNotice}</div>}
+      {importError && <div className="inline-form-error ratibi-import-error" role="alert">{importError}</div>}
+
+      {pasteOpen && (
+        <form className="ratibi-paste-card" onSubmit={submitPastedBundle}>
+          <div><strong>لصق احتياطي</strong><button type="button" onClick={() => { setPasteOpen(false); setImportError('') }} aria-label="إغلاق اللصق الاحتياطي"><Icon name="close" size={18} /></button></div>
+          <p>الصق النص الذي نسخه تطبيق راتبي كاملًا، ثم اعتمد الاستيراد.</p>
+          <textarea dir="ltr" value={pasteValue} onChange={(event) => setPasteValue(event.target.value)} placeholder='{"schema":"ratibi.rushd.finance",...}' aria-label="بيانات راتبي بصيغة JSON" />
+          <button type="submit" disabled={saving || !pasteValue.trim()}>{saving ? 'جاري الاستيراد…' : 'اعتماد البيانات المنسوخة'}</button>
         </form>
-      </section>
+      )}
 
-      <section className="section-block analytics-card">
-        <div className="section-title"><div><span>اتجاه الصرف</span><h2>آخر 6 أسابيع</h2></div><b>{snapshot.utilization}%</b></div>
-        <div className="weekly-chart" aria-label="رسم اتجاه الصرف">
-          {weeklyBars.map((value, index) => <motion.i key={index} initial={{ height: 0 }} animate={{ height: `${value}%` }} transition={{ delay: index * 0.08 }}><small>{index + 1}</small></motion.i>)}
-        </div>
-      </section>
+      {plan && snapshot && (
+        <>
+          <section className="ratibi-summary-grid" aria-label="ملخص بيانات الشهر">
+            <article><span>إجمالي الدخل</span><strong>{formatSar(bundle ? getRatibiIncomeTotal(bundle) : plan.salary)}</strong><small>ريال</small></article>
+            <article><span>المستخدم</span><strong>{formatSar(snapshot.spent)}</strong><small>{snapshot.utilization}% من الدخل</small></article>
+            <article><span>المتبقي</span><strong>{formatSar(snapshot.remaining)}</strong><small>ريال</small></article>
+          </section>
 
-      <section className="section-block transaction-section">
-        <div className="section-title"><div><span>آخر الحركات</span><h2>سجل المصروفات</h2></div><b>{transactions.length}</b></div>
-        {transactions.length === 0 && <div className="transaction-empty">ما سجلت أي مصروف في هذا الشهر.</div>}
-        {transactions.slice(0, 12).map((transaction) => {
-          const category = categories.find((item) => item.id === transaction.categoryId)
-          return <article className="transaction-row" key={transaction.id}><span className="transaction-icon"><Icon name={categoryIcons[transaction.categoryId] ?? 'receipt'} size={18} /></span><div><strong>{transaction.title}</strong><small>{category?.title} · {formatTransactionDate(transaction.occurredAt)}</small></div><b>-{formatSar(transaction.amount)}</b></article>
-        })}
-      </section>
+          <section className="section-block">
+            <div className="section-title"><div><span>التوزيع</span><h2>ميزانيات الشهر</h2></div><span className={`plan-status ${snapshot.overspent ? 'danger' : ''}`}>{snapshot.overspent ? 'يحتاج انتباه' : 'مرتب'}</span></div>
+            <div className="budget-category-list">
+              {plan.categories.map((category, index) => {
+                const usage = getSpentPercentage(category.spent, category.limit)
+                const status = category.spent > category.limit ? 'danger' : usage >= 80 ? 'watch' : 'good'
+                return (
+                  <motion.article className={`budget-category ${status}`} key={category.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                    <span className={`category-icon ${category.tone}`}><Icon name={categoryIcons[category.id] ?? 'wallet'} size={20} /></span>
+                    <div className="category-body">
+                      <div><strong>{category.title}</strong><b>{formatSar(category.spent)} / {formatSar(category.limit)}</b></div>
+                      <ProgressBar value={usage} tone={status}/>
+                      <small>{status === 'danger' ? `تجاوزت بـ ${formatSar(category.spent - category.limit)} ريال` : `متبقي ${formatSar(Math.max(0, category.limit - category.spent))} ريال`}</small>
+                    </div>
+                  </motion.article>
+                )
+              })}
+            </div>
+          </section>
+
+          {bundle && bundle.obligations.length > 0 && (
+            <section className="section-block ratibi-detail-section">
+              <div className="section-title"><div><span>من راتبي</span><h2>الالتزامات</h2></div><b>{bundle.obligations.length}</b></div>
+              <div className="ratibi-detail-list">
+                {bundle.obligations.map((item) => {
+                  const paid = item.amount <= 0 ? 0 : Math.round((item.paidAmount / item.amount) * 100)
+                  return <article key={item.id}><span><Icon name={paid >= 100 ? 'check' : 'receipt'} size={18} /></span><div><strong>{item.title}</strong><small>{item.dueDate ? new Date(item.dueDate).toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' }) : 'بدون موعد محدد'}</small><ProgressBar value={paid}/></div><b>{formatSar(item.paidAmount)} / {formatSar(item.amount)}</b></article>
+                })}
+              </div>
+            </section>
+          )}
+
+          {bundle && bundle.goals.length > 0 && (
+            <section className="section-block ratibi-detail-section">
+              <div className="section-title"><div><span>من راتبي</span><h2>الأهداف</h2></div><b>{bundle.goals.length}</b></div>
+              <div className="ratibi-detail-list">
+                {bundle.goals.map((goal) => {
+                  const progress = goal.target <= 0 ? 0 : Math.round((goal.saved / goal.target) * 100)
+                  return <article key={goal.id}><span><Icon name="target" size={18} /></span><div><strong>{goal.title}</strong><small>مخصص الشهر {formatSar(goal.monthlyAllocation)} ريال</small><ProgressBar value={progress}/></div><b>{progress}%</b></article>
+                })}
+              </div>
+            </section>
+          )}
+
+          {bundle && bundle.accounts.length > 0 && (
+            <section className="section-block ratibi-detail-section">
+              <div className="section-title"><div><span>من راتبي</span><h2>الحسابات</h2></div><b>{bundle.accounts.length}</b></div>
+              <div className="ratibi-account-grid">
+                {bundle.accounts.map((account) => <article key={account.id}><span><Icon name="wallet" size={18} /></span><div><strong>{account.title}</strong><small>{account.type}</small></div>{account.balance != null && <b>{formatSar(account.balance)} ريال</b>}</article>)}
+              </div>
+            </section>
+          )}
+
+          {bundle && bundle.transactions.length > 0 && (
+            <section className="section-block transaction-section">
+              <div className="section-title"><div><span>من راتبي</span><h2>آخر الحركات</h2></div><b>{bundle.transactions.length}</b></div>
+              {bundle.transactions.slice(0, 12).map((transaction) => (
+                <article className="transaction-row" key={transaction.id}><span className="transaction-icon"><Icon name="receipt" size={18} /></span><div><strong>{transaction.title}</strong><small>{transaction.category || 'بدون فئة'} · {new Date(transaction.occurredAt).toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' })}</small></div><b>-{formatSar(transaction.amount)}</b></article>
+              ))}
+            </section>
+          )}
+        </>
+      )}
     </motion.main>
   )
 }
 
 function WishesView({
   wishes,
+  monthlyBudget,
   onAdd,
   access,
   syncStatus,
   syncError,
 }: {
   wishes: SharedWish[]
+  monthlyBudget: RatibiBudget | null
   onAdd: (input: { title: string; icon: string; target: number; deadline: string }) => Promise<void>
   access: AccessLevel
   syncStatus: SharedSyncStatus
@@ -336,6 +394,16 @@ function WishesView({
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className="goal-intro wishes-intro"><span>أماني رُشد</span><h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1><p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p></section>
+      {monthlyBudget && (
+        <section className="wish-monthly-budget">
+          <div><span>ميزانية الأماني من راتبي</span><strong>{formatSar(Math.max(0, monthlyBudget.limit - monthlyBudget.spent))} ريال</strong><small>متبقي من {formatSar(monthlyBudget.limit)} ريال هذا الشهر</small></div>
+          <ProgressBar value={getSpentPercentage(monthlyBudget.spent, monthlyBudget.limit)} />
+          <p>تتحدث تلقائيًا عند استيراد نسخة جديدة من تطبيق راتبي.</p>
+        </section>
+      )}
+      {!monthlyBudget && (
+        <section className="wish-budget-link-note"><Icon name="spark" size={18} /><div><strong>ميزانية الأماني تأتي من راتبي</strong><p>أضفها هناك ضمن الميزانيات، ثم حدّث بيانات حساب الشهر في رُشد.</p></div></section>
+      )}
       {access === 'none' ? (
         <section className="module-empty-state"><span><Icon name="lock" size={24} /></span><strong>هذه الوحدة خاصة</strong><p>مالك البيت لم يفعّل لك الوصول إلى الأماني المشتركة.</p></section>
       ) : (
@@ -527,97 +595,15 @@ function MarketView({
   )
 }
 
-function MonthSetup({
-  monthKey,
-  setMonthKey,
-  displayName,
-  suggestedSalary,
-  busy,
-  error,
-  onSubmit,
-  onLogout,
-}: {
-  monthKey: string
-  setMonthKey: (value: string) => void
-  displayName: string
-  suggestedSalary: string
-  busy: boolean
-  error: string
-  onSubmit: (name: string, salary: number) => Promise<void>
-  onLogout: () => Promise<void>
-}) {
-  const [name, setName] = useState(displayName)
-  const [salary, setSalary] = useState(suggestedSalary)
-  const [localError, setLocalError] = useState('')
-
-  useEffect(() => setName(displayName), [displayName])
-  useEffect(() => { if (suggestedSalary) setSalary(suggestedSalary) }, [suggestedSalary])
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const value = Number(salary)
-    if (name.trim().length < 2 || !Number.isFinite(value) || value <= 0) {
-      setLocalError('اكتب اسمك وراتبًا شهريًا صحيحًا.')
-      return
-    }
-    setLocalError('')
-    try {
-      await onSubmit(name.trim(), value)
-    } catch (cause: unknown) {
-      setLocalError(cause instanceof Error ? cause.message : 'تعذر إنشاء خطة الشهر.')
-    }
-  }
-
-  return (
-    <div className="app-canvas setup-canvas" dir="rtl">
-      <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
-      <main className="month-setup-card">
-        <div className="setup-topline"><span className="auth-logo"><img src="/icons/icon-192.png" alt="" width="44" height="44" /></span><button type="button" onClick={() => void onLogout()}><Icon name="logout" size={15} /> تسجيل الخروج</button></div>
-        <RushdCharacter mood="happy" size="lg" message="أول خطوة بسيطة: اسمك، راتبك، وبعدها أبني لك شهرًا نظيفًا بدون بيانات جاهزة." />
-        <span className="setup-eyebrow">تهيئة حساب الشهر</span>
-        <h1>خلّنا نبني {formatMonthLabel(monthKey)}.</h1>
-        <p>لن نضيف أي مصروفات افتراضية. تبدأ خطتك صفر، وكل حركة تسجلها تكون لك وحدك.</p>
-        <form onSubmit={submit}>
-          <label><span>اسمك</span><input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label>
-            <span>الشهر</span>
-            <input
-              type="month"
-              lang="ar"
-              dir="rtl"
-              aria-label="شهر الخطة"
-              value={monthKey}
-              onChange={(event) => setMonthKey(event.target.value)}
-            />
-          </label>
-          <label><span>الراتب الشهري</span><div><input inputMode="decimal" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder="مثلاً 12000"/><b>ريال</b></div></label>
-          {(localError || error) && <div className="auth-error" role="alert">{localError || error}</div>}
-          <button type="submit" disabled={busy}>{busy ? 'جاري بناء الخطة…' : 'ابدأ حساب الشهر'}</button>
-        </form>
-        <small className="setup-privacy">الراتب والمصروفات والاستثمارات خاصة بحسابك ولا يقرأها أعضاء العائلة.</small>
-      </main>
-    </div>
-  )
-}
-
-export default function App({ user, displayName, onSaveDisplayName, onLogout }: AppProps) {
+export default function App({ user, displayName, onLogout }: AppProps) {
   const [tab, setTab] = useState<Tab>('home')
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey())
   const [marketMonthKey, setMarketMonthKey] = useState(getCurrentMonthKey())
-  const [salaryDraft, setSalaryDraft] = useState('')
-  const [lastKnownSalary, setLastKnownSalary] = useState('')
   const [message, setMessage] = useState(tabMessages.home)
   const [counter, setCounter] = useState(0)
   const monthly = useMonthlyPlan(user, monthKey)
   const shared = useSharedModules(user, marketMonthKey)
   const plan = monthly.plan
-
-  useEffect(() => {
-    if (!plan) return
-    const value = String(plan.salary)
-    setSalaryDraft(value)
-    setLastKnownSalary(value)
-  }, [plan?.monthKey, plan?.salary])
 
   const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' ? 'happy' : 'calm', [tab])
   const marketDataIsCurrent = shared.marketBudget?.monthKey === marketMonthKey
@@ -633,31 +619,10 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
     setMessage(tabMessages[next])
   }
 
-  const createPlan = async (name: string, salary: number) => {
-    await onSaveDisplayName(name)
-    await monthly.savePlan(salary, buildSuggestedBudget(salary))
-    setMessage('تم بناء الشهر وحفظه في حسابك الخاص.')
-  }
-
-  const rebuildPlan = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const nextSalary = Number(salaryDraft)
-    if (!plan || !Number.isFinite(nextSalary) || nextSalary <= 0) {
-      setMessage('اكتب راتبًا صحيحًا أولًا، وبعدها أبني لك الخطة.')
-      return
-    }
-    const nextCategories = buildSuggestedBudget(nextSalary, plan.categories)
-    void monthly.savePlan(nextSalary, nextCategories)
-      .then(() => setMessage('أعدت توزيع الراتب مع الحفاظ على مصروفاتك الحالية.'))
-      .catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : 'تعذر حفظ الخطة.'))
-  }
-
-  const addExpense = async (title: string, amount: number, categoryId: string) => {
-    if (!plan) throw new Error('ابدأ خطة الشهر أولًا.')
-    const category = plan.categories.find((item) => item.id === categoryId)
-    const projected = (category?.spent ?? 0) + amount
-    await monthly.addExpense(title, amount, categoryId)
-    setMessage(projected > (category?.limit ?? Number.POSITIVE_INFINITY) ? `انتبه: ${category?.title} تجاوزت الميزانية بعد هذا المصروف.` : 'تم تسجيل المصروف وحفظه في حسابك.')
+  const importFromRatibi = async (bundle: RatibiFinanceBundleV1) => {
+    await monthly.importFromRatibi(bundle)
+    if (bundle.month !== monthKey) setMonthKey(bundle.month)
+    setMessage(`وصلت بيانات ${formatMonthLabel(bundle.month)} من راتبي ورتّبتها لك.`)
   }
 
   const addWish = async (input: { title: string; icon: string; target: number; deadline: string }) => {
@@ -679,7 +644,10 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
   }
 
   const pressCharacter = () => {
-    if (!plan) return
+    if (!plan) {
+      setMessage('انسخ ملخصك من راتبي، وبعدها اضغط زر الاستيراد في حساب الشهر.')
+      return
+    }
     const snapshot = getFinancialSnapshot(plan.salary, plan.categories)
     const messages = [
       `باقي معك ${formatSar(snapshot.remaining)} ريال من راتب هذا الشهر.`,
@@ -699,10 +667,6 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
     return <main className="system-screen" role="alert"><div className="system-mark">!</div><h1>تعذر فتح حساب الشهر.</h1><p>{monthly.error}</p><button type="button" onClick={() => window.location.reload()}>إعادة المحاولة</button><button type="button" className="system-link-button" onClick={() => void onLogout()}>تسجيل الخروج</button></main>
   }
 
-  if (!plan) {
-    return <MonthSetup monthKey={monthKey} setMonthKey={setMonthKey} displayName={safeName} suggestedSalary={lastKnownSalary} busy={monthly.saving} error={monthly.error} onSubmit={createPlan} onLogout={onLogout} />
-  }
-
   return (
     <div className="app-canvas" dir="rtl">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
@@ -715,13 +679,15 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
         {(monthly.error || shared.error) && <div className="app-inline-alert" role="alert">{monthly.error || shared.error}</div>}
         <AnimatePresence mode="wait">
           {tab === 'home' && (
-            <HomeView key="home" salary={plan.salary} categories={plan.categories} wishes={shared.wishes} marketRemaining={marketRemaining} onOpenMonth={() => changeTab('month')}/>
+            plan
+              ? <HomeView key="home" salary={plan.salary} categories={plan.categories} wishes={shared.wishes} marketRemaining={marketRemaining} onOpenMonth={() => changeTab('month')}/>
+              : <EmptyHomeView key="home-empty" onOpenMonth={() => changeTab('month')} />
           )}
           {tab === 'month' && (
-            <MonthView key="month" monthKey={monthKey} setMonthKey={setMonthKey} salary={plan.salary} salaryDraft={salaryDraft} setSalaryDraft={setSalaryDraft} categories={plan.categories} transactions={plan.transactions} onRebuild={rebuildPlan} onAddExpense={addExpense} saving={monthly.saving} fromCache={plan.fromCache} hasPendingWrites={plan.hasPendingWrites}/>
+            <MonthView key="month" plan={plan} onImport={importFromRatibi} saving={monthly.saving}/>
           )}
           {tab === 'wishes' && (
-            <WishesView key="wishes" wishes={shared.wishes} onAdd={addWish} access={shared.permissions.wishes} syncStatus={shared.status} syncError={shared.error}/>
+            <WishesView key="wishes" wishes={shared.wishes} monthlyBudget={getRatibiWishesBudget(plan?.ratibi ?? null)} onAdd={addWish} access={shared.permissions.wishes} syncStatus={shared.status} syncError={shared.error}/>
           )}
           {tab === 'market' && (
             <MarketView

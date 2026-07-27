@@ -14,6 +14,12 @@ import {
 import { db } from './firebase'
 import type { BudgetCategory, CategoryTone } from './financialEngine'
 import { ARABIC_GREGORIAN_LOCALE } from './locale'
+import {
+  buildRatibiCategories,
+  getRatibiIncomeTotal,
+  parseRatibiBundle,
+  type RatibiFinanceBundleV1,
+} from './ratibiImport'
 
 export type MonthlyTransaction = {
   id: string
@@ -28,6 +34,8 @@ export type MonthlyPlan = {
   salary: number
   categories: BudgetCategory[]
   transactions: MonthlyTransaction[]
+  source: 'manual' | 'ratibi'
+  ratibi: RatibiFinanceBundleV1 | null
   fromCache: boolean
   hasPendingWrites: boolean
 }
@@ -35,6 +43,8 @@ export type MonthlyPlan = {
 type PlanRecord = {
   salary: number
   categories: BudgetCategory[]
+  source: 'manual' | 'ratibi'
+  ratibi: RatibiFinanceBundleV1 | null
 }
 
 const validTones: CategoryTone[] = ['violet', 'lavender', 'apricot', 'coral']
@@ -46,7 +56,7 @@ const normalizeCategory = (input: Record<string, unknown>): BudgetCategory => ({
   title: String(input.title || 'فئة'),
   icon: String(input.icon || '•'),
   limit: Math.max(0, Number(input.limit || 0)),
-  spent: 0,
+  spent: Math.max(0, Number(input.spent || 0)),
   tone: validTones.includes(input.tone as CategoryTone) ? input.tone as CategoryTone : 'violet',
 })
 
@@ -55,6 +65,7 @@ const serializeCategories = (categories: BudgetCategory[]) => categories.map((ca
   title: category.title,
   icon: category.icon,
   limit: Math.max(0, Math.round(category.limit)),
+  spent: Math.max(0, Math.round(category.spent * 100) / 100),
   tone: category.tone,
 }))
 
@@ -115,8 +126,12 @@ export const subscribeToMonthlyPlan = (
     onChange({
       monthKey,
       salary: planRecord.salary,
-      categories: applyTransactions(planRecord.categories, transactions),
+      categories: planRecord.source === 'ratibi'
+        ? planRecord.categories
+        : applyTransactions(planRecord.categories, transactions),
       transactions,
+      source: planRecord.source,
+      ratibi: planRecord.ratibi,
       fromCache: planFromCache || transactionsFromCache,
       hasPendingWrites: planPending || transactionsPending,
     })
@@ -131,9 +146,20 @@ export const subscribeToMonthlyPlan = (
     } else {
       const data = snapshot.data()
       const rawCategories = Array.isArray(data.categories) ? data.categories : []
+      const source = data.source === 'ratibi' ? 'ratibi' : 'manual'
+      let ratibi: RatibiFinanceBundleV1 | null = null
+      if (source === 'ratibi' && data.ratibiSnapshot) {
+        try {
+          ratibi = parseRatibiBundle(data.ratibiSnapshot)
+        } catch {
+          ratibi = null
+        }
+      }
       planRecord = {
         salary: Math.max(0, Number(data.salary || 0)),
         categories: rawCategories.map((category) => normalizeCategory(category as Record<string, unknown>)),
+        source,
+        ratibi,
       }
     }
     emit()
@@ -174,10 +200,29 @@ export const saveMonthlyPlan = async (
   const record = {
     salary: Math.max(0, Math.round(salary)),
     categories: serializeCategories(categories),
+    source: 'manual',
     ...(isNew ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
   await setDoc(reference, record, { merge: true })
+}
+
+export const importRatibiMonthlyPlan = async (
+  userId: string,
+  bundle: RatibiFinanceBundleV1,
+) => {
+  const reference = monthPath(userId, bundle.month)
+  await setDoc(reference, {
+    salary: getRatibiIncomeTotal(bundle),
+    categories: serializeCategories(buildRatibiCategories(bundle)),
+    source: 'ratibi',
+    sourceApp: 'ratibi',
+    sourceVersion: bundle.version,
+    sourceExportedAt: bundle.exportedAt,
+    ratibiSnapshot: bundle,
+    updatedAt: serverTimestamp(),
+    importedAt: serverTimestamp(),
+  }, { merge: true })
 }
 
 export const addMonthlyTransaction = async (
@@ -207,5 +252,9 @@ export const loadMonthlyPlanOnce = async (userId: string, monthKey = getCurrentM
   return {
     salary: Math.max(0, Number(data.salary || 0)),
     categories: (Array.isArray(data.categories) ? data.categories : []).map((category) => normalizeCategory(category as Record<string, unknown>)),
+    source: data.source === 'ratibi' ? 'ratibi' as const : 'manual' as const,
+    ratibi: data.source === 'ratibi' && data.ratibiSnapshot
+      ? parseRatibiBundle(data.ratibiSnapshot)
+      : null,
   }
 }

@@ -54,6 +54,20 @@ const transactionId = `transaction-${runId}`
 const accountId = `account-${runId}`
 const goalId = `goal-${runId}`
 const scenarioId = `scenario-${runId}`
+const ratibiSnapshot = {
+  schema: 'ratibi.rushd.finance',
+  version: 1,
+  exportedAt: '2099-02-01T08:00:00.000Z',
+  month: nextMonthKey,
+  currency: 'SAR',
+  profile: { displayName: 'Rushd Smoke Owner', salaryDay: 27 },
+  income: { salary: 12500, additional: [] },
+  obligations: [{ id: 'rent', title: 'Rent', amount: 2000, paidAmount: 2000, dueDate: null, category: 'housing' }],
+  goals: [{ id: 'emergency', title: 'Emergency', target: 10000, saved: 2500, monthlyAllocation: 500, contributedThisMonth: 500, deadline: null, category: 'safety' }],
+  budgets: [{ id: 'wishes', title: 'Wishes', limit: 500, spent: 100, kind: 'wishes' }],
+  accounts: [],
+  transactions: [],
+}
 
 const ownerApp = initializeApp(firebaseConfig, `rushd-owner-${runId}`)
 const memberApp = initializeApp(firebaseConfig, `rushd-member-${runId}`)
@@ -208,8 +222,17 @@ try {
   })
   await setDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', nextMonthKey), {
     salary: 12500,
-    categories: [{ id: 'needs', title: 'Needs', icon: 'N', limit: 5200, tone: 'violet' }],
-    createdAt: serverTimestamp(),
+    categories: [
+      { id: 'commitments', title: 'Commitments', icon: 'C', limit: 2000, spent: 2000, tone: 'lavender' },
+      { id: 'future', title: 'Goals', icon: 'G', limit: 500, spent: 500, tone: 'apricot' },
+      { id: 'wishes', title: 'Wishes', icon: 'W', limit: 500, spent: 100, tone: 'violet' },
+    ],
+    source: 'ratibi',
+    sourceApp: 'ratibi',
+    sourceVersion: 1,
+    sourceExportedAt: ratibiSnapshot.exportedAt,
+    ratibiSnapshot,
+    importedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
   await setDoc(doc(ownerDb, 'users', ownerUid, 'investmentAccounts', accountId), {
@@ -321,6 +344,10 @@ try {
     'A household member could read the owner monthly plan.',
   )
   await expectPermissionDenied(
+    () => getDoc(doc(memberDb, 'users', ownerUid, 'monthlyPlans', nextMonthKey)),
+    'A household member could read the owner Ratibi import.',
+  )
+  await expectPermissionDenied(
     () => getDoc(doc(memberDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId)),
     'A household member could read an owner transaction.',
   )
@@ -381,13 +408,15 @@ try {
   const ownerScenarioSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
   assert.equal(ownerPlanSnapshot.data()?.salary, 12000, 'Monthly plan did not persist.')
   assert.equal(nextMonthSnapshot.data()?.salary, 12500, 'Creating a new month damaged monthly history.')
+  assert.equal(nextMonthSnapshot.data()?.source, 'ratibi', 'Ratibi import source was not persisted.')
+  assert.equal(nextMonthSnapshot.data()?.ratibiSnapshot?.budgets?.[0]?.kind, 'wishes', 'Ratibi wishes budget was not persisted.')
   assert.equal(ownerTransactionSnapshot.data()?.amount, 125, 'Monthly transaction did not persist.')
   assert.equal(ownerGoalSnapshot.data()?.saved, 250, 'Goal contribution did not persist.')
   assert.equal(ownerScenarioSnapshot.data()?.newSalary, 14000, 'Promotion scenario did not persist.')
   await deleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
   assert.equal((await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))).exists(), false, 'Promotion scenario was not deleted.')
 
-  process.stdout.write('Firebase live smoke test passed: owner-controlled supermarket budget, member deductions, private monthly data, household permissions, and realtime sync are working.\n')
+  process.stdout.write('Firebase live smoke test passed: Ratibi monthly import, owner-controlled supermarket budget, member deductions, private monthly data, household permissions, and realtime sync are working.\n')
 } finally {
   if (ownerUid) {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId))

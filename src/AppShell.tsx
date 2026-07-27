@@ -101,7 +101,7 @@ export default function AppShell() {
     <>
       {!online && <div className="offline-banner" role="status">أنت دون اتصال — نعرض النسخة المحفوظة وسنزامن التعديلات عند عودة الإنترنت.</div>}
       {logoutError && <div className="global-error-banner" role="alert">{logoutError}</div>}
-      <App user={user} displayName={session.displayName} onSaveDisplayName={session.saveDisplayName} onLogout={logout} />
+      <App user={user} displayName={session.displayName} onLogout={logout} />
 
       <motion.button type="button" className="launch-tools-trigger" onClick={() => setToolsOpen(true)} aria-label="فتح أدوات رُشد" aria-expanded={toolsOpen} whileTap={{ scale: 0.94 }}>
         <span aria-hidden="true"><Icon name="grid" size={17} /></span><small>الأدوات</small>
@@ -146,6 +146,7 @@ export default function AppShell() {
               <button type="button" data-autofocus onClick={() => setPrivacyOpen(false)} aria-label="إغلاق"><Icon name="close" size={20} /></button>
               <span>خصوصيتك أولًا</span><h2 id="privacy-title">ما الذي يحفظه رُشد؟</h2>
               <p>يحفظ رُشد الاسم والبريد وخطط الأشهر والمصروفات والاستثمارات داخل Firebase. الراتب والمعاملات والمحافظ والأهداف وسيناريوهات الترقية خاصة بصاحب الحساب فقط.</p>
+              <p>عند الاستيراد من راتبي، يقرأ رُشد النص المنسوخ فقط بعد ضغطك على زر الاستيراد، ويتحقق منه ثم يحفظ النسخة الشهرية داخل حسابك الخاص. لا يضع بياناتك في رابط ولا يرسلها إلى analytics.</p>
               <p>بيانات البيت المشتركة تقتصر على ميزانية السوبرماركت والأماني وسجل النشاط، وتظهر حسب صلاحية عرض أو تعديل أو بدون وصول.</p>
               <small>لا يرسل رُشد راتبك أو بريدك إلى سجلات console أو أدوات تحليلات.</small>
             </motion.section>

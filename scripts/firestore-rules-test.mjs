@@ -99,6 +99,45 @@ try {
     categories: [],
   }))
 
+  const ratibiMonth = '2026-08'
+  const ratibiSnapshot = {
+    schema: 'ratibi.rushd.finance',
+    version: 1,
+    exportedAt: '2026-08-01T08:00:00.000Z',
+    month: ratibiMonth,
+    currency: 'SAR',
+    profile: { displayName: 'Owner', salaryDay: 27 },
+    income: { salary: 16500, additional: [] },
+    obligations: [{ id: 'rent', title: 'Rent', amount: 2166, paidAmount: 2166, dueDate: null, category: 'housing' }],
+    goals: [{ id: 'emergency', title: 'Emergency', target: 30000, saved: 5000, monthlyAllocation: 1000, contributedThisMonth: 1000, deadline: null, category: 'safety' }],
+    budgets: [{ id: 'wishes', title: 'Wishes', limit: 500, spent: 100, kind: 'wishes' }],
+    accounts: [],
+    transactions: [],
+  }
+  const ratibiPlanReference = doc(ownerDb, 'users', ownerId, 'monthlyPlans', ratibiMonth)
+  await assertSucceeds(setDoc(ratibiPlanReference, {
+    salary: 16500,
+    categories: [{ id: 'commitments', title: 'Commitments', icon: 'C', limit: 2166, spent: 2166, tone: 'lavender' }],
+    source: 'ratibi',
+    ratibiSnapshot,
+    importedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }))
+  await assertSucceeds(getDoc(ratibiPlanReference))
+  await assertFails(getDoc(doc(memberDb, 'users', ownerId, 'monthlyPlans', ratibiMonth)))
+  await assertFails(setDoc(doc(ownerDb, 'users', ownerId, 'monthlyPlans', '2026-09'), {
+    salary: 16500,
+    categories: [],
+    source: 'ratibi',
+    ratibiSnapshot,
+  }))
+  await assertFails(setDoc(doc(ownerDb, 'users', ownerId, 'monthlyPlans', '2026-10'), {
+    salary: 16500,
+    categories: [],
+    source: 'ratibi',
+    ratibiSnapshot: { ...ratibiSnapshot, month: '2026-10', schema: 'unknown.schema' },
+  }))
+
   const membershipReference = doc(memberDb, 'households', householdId, 'members', memberId)
   const acceptedPermissions = { market: 'edit', wishes: 'view', noor: 'none' }
   await assertFails(setDoc(membershipReference, {
