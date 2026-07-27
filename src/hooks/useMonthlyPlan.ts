@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import type { User } from 'firebase/auth'
 import {
   addMonthlyTransaction,
+  importRatibiMonthlyPlan,
   saveMonthlyPlan,
   subscribeToMonthlyPlan,
   type MonthlyPlan,
 } from '../lib/monthlyPlanRepository'
 import type { BudgetCategory } from '../lib/financialEngine'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
+import type { RatibiFinanceBundleV1 } from '../lib/ratibiImport'
 
 type MonthlyPlanStatus = 'loading' | 'empty' | 'ready' | 'error'
 
@@ -59,5 +61,19 @@ export function useMonthlyPlan(user: User, monthKey: string) {
     }
   }, [monthKey, user.uid])
 
-  return { plan, status, error, saving, savePlan, addExpense }
+  const importFromRatibi = useCallback(async (bundle: RatibiFinanceBundleV1) => {
+    setSaving(true)
+    setError('')
+    try {
+      await importRatibiMonthlyPlan(user.uid, bundle)
+    } catch (cause: unknown) {
+      const message = getFirebaseErrorMessage(cause, 'تعذر استيراد بيانات راتبي.')
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [user.uid])
+
+  return { plan, status, error, saving, savePlan, addExpense, importFromRatibi }
 }

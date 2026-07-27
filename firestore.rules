@@ -49,10 +49,38 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/householdInvites/$(request.auth.token.email)).data;
     }
 
-    function validMonthlyPlan() {
+    function validRatibiSnapshot(monthId) {
+      return request.resource.data.ratibiSnapshot is map
+        && request.resource.data.ratibiSnapshot.schema == 'ratibi.rushd.finance'
+        && request.resource.data.ratibiSnapshot.version == 1
+        && request.resource.data.ratibiSnapshot.month == monthId
+        && request.resource.data.ratibiSnapshot.currency == 'SAR'
+        && request.resource.data.ratibiSnapshot.income is map
+        && request.resource.data.ratibiSnapshot.income.salary is number
+        && request.resource.data.ratibiSnapshot.income.salary > 0
+        && request.resource.data.ratibiSnapshot.obligations is list
+        && request.resource.data.ratibiSnapshot.obligations.size() <= 200
+        && request.resource.data.ratibiSnapshot.goals is list
+        && request.resource.data.ratibiSnapshot.goals.size() <= 200
+        && request.resource.data.ratibiSnapshot.budgets is list
+        && request.resource.data.ratibiSnapshot.budgets.size() <= 200
+        && request.resource.data.ratibiSnapshot.accounts is list
+        && request.resource.data.ratibiSnapshot.accounts.size() <= 200
+        && request.resource.data.ratibiSnapshot.transactions is list
+        && request.resource.data.ratibiSnapshot.transactions.size() <= 200;
+    }
+
+    function validMonthlyPlan(monthId) {
       return request.resource.data.salary is number
         && request.resource.data.salary > 0
-        && request.resource.data.categories is list;
+        && request.resource.data.categories is list
+        && request.resource.data.categories.size() <= 202
+        && (!('source' in request.resource.data)
+          || request.resource.data.source == 'manual'
+          || request.resource.data.source == 'ratibi')
+        && (!('source' in request.resource.data)
+          || request.resource.data.source != 'ratibi'
+          || validRatibiSnapshot(monthId));
     }
 
     function validTransaction() {
@@ -97,7 +125,7 @@ service cloud.firestore {
 
       match /monthlyPlans/{monthId} {
         allow read, delete: if isSelf(userId);
-        allow create, update: if isSelf(userId) && validMonthlyPlan();
+        allow create, update: if isSelf(userId) && validMonthlyPlan(monthId);
 
         match /transactions/{transactionId} {
           allow read, delete: if isSelf(userId);

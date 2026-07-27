@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test:ratibi": "node --import tsx scripts/ratibi-import-test.ts",
     "test:rules": "npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project demo-rushd \"node scripts/firestore-rules-test.mjs\"",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
@@ -22,6 +23,7 @@
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
+    "tsx": "^4.23.1",
     "typescript": "~5.8.3",
     "vite": "^7.1.3"
   }
