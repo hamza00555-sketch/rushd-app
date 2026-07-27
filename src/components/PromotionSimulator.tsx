@@ -19,6 +19,7 @@ import {
 import { getCurrentMonthKey, loadMonthlyPlanOnce } from '../lib/monthlyPlanRepository'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
 import { useDialog } from '../hooks/useDialog'
+import { Icon } from './Icon'
 
 export function PromotionSimulator({ onClose, user }: { onClose: () => void; user: User }) {
   const [currentSalary, setCurrentSalary] = useState('')
@@ -140,7 +141,7 @@ export function PromotionSimulator({ onClose, user }: { onClose: () => void; use
   return (
     <motion.section className="promotion-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <motion.div ref={dialogRef} className="promotion-sheet" role="dialog" aria-modal="true" aria-labelledby="promotion-title" tabIndex={-1} initial={{ y: 70, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 70, scale: .98 }}>
-        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق محاكي الترقية">×</button>
+        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق محاكي الترقية"><Icon name="close" size={21} /></button>
         <header className="promotion-header">
           <div className="promotion-title-copy">
             <span>محاكي الترقية</span>
@@ -156,7 +157,7 @@ export function PromotionSimulator({ onClose, user }: { onClose: () => void; use
           <div className="promotion-section-title"><div><span>01</span><h2>حدد الراتبين</h2></div><small>الحساب لحظي</small></div>
           <div className="salary-compare-inputs">
             <label><small>راتبك الحالي</small><div><input inputMode="decimal" value={currentSalary} onChange={(event) => setCurrentSalary(event.target.value)} aria-label="الراتب الحالي"/><b>ريال</b></div></label>
-            <span className="salary-arrow">←</span>
+            <span className="salary-arrow"><Icon name="arrowLeft" size={20} /></span>
             <label><small>الراتب الجديد</small><div><input inputMode="decimal" value={newSalary} onChange={(event) => setNewSalary(event.target.value)} aria-label="الراتب الجديد"/><b>ريال</b></div></label>
           </div>
           <div className="raise-options">
@@ -179,7 +180,7 @@ export function PromotionSimulator({ onClose, user }: { onClose: () => void; use
           <div className="profile-options">
             {promotionProfiles.map((profile) => (
               <button type="button" className={profileId === profile.id ? 'active' : ''} onClick={() => setProfileId(profile.id)} key={profile.id}>
-                <span>{profile.icon}</span><div><small>{profile.subtitle}</small><strong>{profile.title}</strong><p>{profile.description}</p></div><i>{profileId === profile.id ? '✓' : ''}</i>
+                <span><Icon name="spark" size={19} /></span><div><small>{profile.subtitle}</small><strong>{profile.title}</strong><p>{profile.description}</p></div><i>{profileId === profile.id ? <Icon name="check" size={13} /> : null}</i>
               </button>
             ))}
           </div>
@@ -210,15 +211,15 @@ export function PromotionSimulator({ onClose, user }: { onClose: () => void; use
         <section className="promotion-card saved-scenarios-card">
           <div className="promotion-section-title"><div><span>04</span><h2>السيناريوهات المحفوظة</h2></div><small>{cloudReady ? 'خاصة ومتزامنة' : 'جاري التحميل'}</small></div>
           {savedScenarios.length === 0 ? (
-            <div className="promotion-empty"><span>◎</span><strong>ما حفظت أي سيناريو بعد</strong><p>احفظ أكثر من عرض وظيفي وقارن بينهم بدون ما تعيد الحساب.</p></div>
+            <div className="promotion-empty"><span><Icon name="target" size={28} /></span><strong>ما حفظت أي سيناريو بعد</strong><p>احفظ أكثر من عرض وظيفي وقارن بينهم بدون ما تعيد الحساب.</p></div>
           ) : (
             <div className="saved-scenarios-list">
               {savedScenarios.map((scenario) => (
                 <article key={scenario.id}>
                   <button type="button" className="saved-scenario-main" onClick={() => applyScenario(scenario)}>
-                    <span>↗</span><div><strong>{scenario.name}</strong><small>{formatSar(scenario.currentSalary)} ← {formatSar(scenario.newSalary)} ريال</small></div><b>+{scenario.increaseRate}%</b>
+                    <span><Icon name="trend" size={19} /></span><div><strong>{scenario.name}</strong><small>{formatSar(scenario.currentSalary)} ← {formatSar(scenario.newSalary)} ريال</small></div><b>+{scenario.increaseRate}%</b>
                   </button>
-                  <button type="button" className="delete-scenario" onClick={() => void removeScenario(scenario)} disabled={busy} aria-label={`حذف ${scenario.name}`}>×</button>
+                  <button type="button" className="delete-scenario" onClick={() => void removeScenario(scenario)} disabled={busy} aria-label={`حذف ${scenario.name}`}><Icon name="close" size={17} /></button>
                 </article>
               ))}
             </div>

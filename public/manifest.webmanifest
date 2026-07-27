@@ -8,8 +8,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#fff8f1",
-  "theme_color": "#1f1c5b",
+  "background_color": "#f8f4ee",
+  "theme_color": "#2c274d",
   "description": "خطط شهرك وسجّل مصروفاتك واحفظ بياناتك المالية بخصوصية.",
   "categories": ["finance", "utilities"],
   "icons": [

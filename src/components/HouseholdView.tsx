@@ -17,6 +17,13 @@ import {
 } from '../lib/householdRepository'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
 import { useDialog } from '../hooks/useDialog'
+import { Icon, type IconName } from './Icon'
+
+const moduleIcons: Record<SharedModule, IconName> = {
+  market: 'cart',
+  wishes: 'heart',
+  noor: 'spark',
+}
 
 export function HouseholdView({ onClose, user }: { onClose: () => void; user: User }) {
   const [workspace, setWorkspace] = useState<HouseholdWorkspace | null>(null)
@@ -114,7 +121,7 @@ export function HouseholdView({ onClose, user }: { onClose: () => void; user: Us
         animate={{ y: 0, scale: 1 }}
         exit={{ y: 70, scale: .98 }}
       >
-        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق مساحة العائلة">×</button>
+        <button type="button" className="module-close-sticky" onClick={onClose} aria-label="إغلاق مساحة العائلة"><Icon name="close" size={21} /></button>
         <header className="household-header">
           <div><span>المساحة العائلية</span><h1 id="household-title">{workspace?.name ?? 'رُشد للعائلة'}</h1><p>الحساب المالي الكامل خاص بك. المشاركة تقتصر على الوحدات التي تمنحها لكل عضو.</p></div>
           <div className={`sync-chip ${workspace ? 'connected' : ''}`}><i/>{workspace ? 'متصل لحظيًا بـ Firebase' : 'جاري الاتصال'}</div>
@@ -140,7 +147,7 @@ export function HouseholdView({ onClose, user }: { onClose: () => void; user: Us
               {workspace.isOwner && (
                 <form className="invite-form" onSubmit={inviteMember}>
                   <input type="email" inputMode="email" autoCapitalize="none" placeholder="البريد الإلكتروني للعضو" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} aria-label="البريد الإلكتروني للعضو"/>
-                  <button type="submit" disabled={busy}>إرسال دعوة</button>
+                  <button type="submit" disabled={busy}><Icon name="plus" size={16} /> إرسال دعوة</button>
                 </form>
               )}
             </section>
@@ -157,7 +164,7 @@ export function HouseholdView({ onClose, user }: { onClose: () => void; user: Us
                       : accessLabels[access]
                     return (
                       <button type="button" className="permission-row" onClick={() => void cyclePermission(module)} disabled={busy || selectedMember.role === 'owner' || !workspace.isOwner} key={module}>
-                        <span className="permission-icon">{definition.icon}</span>
+                        <span className="permission-icon"><Icon name={moduleIcons[module]} size={20} /></span>
                         <span><strong>{definition.title}</strong><small>{definition.description}</small></span>
                         <i className={`access-pill access-${access}`}>{accessLabel}</i>
                       </button>
@@ -173,7 +180,7 @@ export function HouseholdView({ onClose, user }: { onClose: () => void; user: Us
                 {workspace.activity.length === 0 && <div className="empty-household-state">لا يوجد نشاط مشترك حتى الآن.</div>}
                 {workspace.activity.slice(0, 7).map((entry, index) => (
                   <motion.article key={entry.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .05 }}>
-                    <span>{entry.icon}</span><div><strong>{entry.actor} · {entry.action}</strong><p>{entry.detail}</p></div><small>{entry.time}</small>
+                    <span><Icon name="receipt" size={18} /></span><div><strong>{entry.actor} · {entry.action}</strong><p>{entry.detail}</p></div><small>{entry.time}</small>
                   </motion.article>
                 ))}
               </div>
