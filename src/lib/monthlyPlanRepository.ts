@@ -36,6 +36,7 @@ export type MonthlyPlan = {
   transactions: MonthlyTransaction[]
   source: 'manual' | 'ratibi'
   ratibi: RatibiFinanceBundleV1 | null
+  sourceExportedAt: string | null
   fromCache: boolean
   hasPendingWrites: boolean
 }
@@ -45,11 +46,19 @@ type PlanRecord = {
   categories: BudgetCategory[]
   source: 'manual' | 'ratibi'
   ratibi: RatibiFinanceBundleV1 | null
+  sourceExportedAt: string | null
+}
+
+export type RatibiSyncSnapshot = {
+  bundle: RatibiFinanceBundleV1
+  fromCache: boolean
+  hasPendingWrites: boolean
 }
 
 const validTones: CategoryTone[] = ['violet', 'lavender', 'apricot', 'coral']
 
 const monthPath = (userId: string, monthKey: string) => doc(db, 'users', userId, 'monthlyPlans', monthKey)
+const ratibiSyncPath = (userId: string, monthKey: string) => doc(db, 'users', userId, 'ratibiSync', monthKey)
 
 const normalizeCategory = (input: Record<string, unknown>): BudgetCategory => ({
   id: String(input.id || ''),
@@ -132,6 +141,7 @@ export const subscribeToMonthlyPlan = (
       transactions,
       source: planRecord.source,
       ratibi: planRecord.ratibi,
+      sourceExportedAt: planRecord.sourceExportedAt,
       fromCache: planFromCache || transactionsFromCache,
       hasPendingWrites: planPending || transactionsPending,
     })
@@ -160,6 +170,9 @@ export const subscribeToMonthlyPlan = (
         categories: rawCategories.map((category) => normalizeCategory(category as Record<string, unknown>)),
         source,
         ratibi,
+        sourceExportedAt: typeof data.sourceExportedAt === 'string'
+          ? data.sourceExportedAt
+          : ratibi?.exportedAt ?? null,
       }
     }
     emit()
@@ -188,6 +201,37 @@ export const subscribeToMonthlyPlan = (
     unsubscribeTransactions()
   }
 }
+
+export const subscribeToRatibiSync = (
+  userId: string,
+  monthKey: string,
+  onChange: (snapshot: RatibiSyncSnapshot | null) => void,
+  onError: (cause: unknown) => void,
+): Unsubscribe => onSnapshot(
+  ratibiSyncPath(userId, monthKey),
+  { includeMetadataChanges: true },
+  (snapshot) => {
+    if (!snapshot.exists()) {
+      onChange(null)
+      return
+    }
+
+    try {
+      const bundle = parseRatibiBundle(snapshot.data().bundle)
+      if (bundle.month !== monthKey) {
+        throw new Error('شهر مزامنة راتبي لا يطابق الشهر المفتوح.')
+      }
+      onChange({
+        bundle,
+        fromCache: snapshot.metadata.fromCache,
+        hasPendingWrites: snapshot.metadata.hasPendingWrites,
+      })
+    } catch (cause: unknown) {
+      onError(cause)
+    }
+  },
+  onError,
+)
 
 export const saveMonthlyPlan = async (
   userId: string,

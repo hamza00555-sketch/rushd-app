@@ -1,23 +1,41 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { User } from 'firebase/auth'
 import {
   addMonthlyTransaction,
   importRatibiMonthlyPlan,
   saveMonthlyPlan,
   subscribeToMonthlyPlan,
+  subscribeToRatibiSync,
   type MonthlyPlan,
+  type RatibiSyncSnapshot,
 } from '../lib/monthlyPlanRepository'
 import type { BudgetCategory } from '../lib/financialEngine'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
 import type { RatibiFinanceBundleV1 } from '../lib/ratibiImport'
 
 type MonthlyPlanStatus = 'loading' | 'empty' | 'ready' | 'error'
+export type RatibiSyncStatus = 'connecting' | 'waiting' | 'syncing' | 'connected' | 'error'
+
+export type RatibiSyncState = {
+  status: RatibiSyncStatus
+  lastExportedAt: string | null
+  fromCache: boolean
+  error: string
+}
 
 export function useMonthlyPlan(user: User, monthKey: string) {
   const [plan, setPlan] = useState<MonthlyPlan | null>(null)
   const [status, setStatus] = useState<MonthlyPlanStatus>('loading')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [ratibiSnapshot, setRatibiSnapshot] = useState<RatibiSyncSnapshot | null>(null)
+  const [ratibiSync, setRatibiSync] = useState<RatibiSyncState>({
+    status: 'connecting',
+    lastExportedAt: null,
+    fromCache: false,
+    error: '',
+  })
+  const importingExportRef = useRef<string | null>(null)
 
   useEffect(() => {
     setStatus('loading')
@@ -75,5 +93,98 @@ export function useMonthlyPlan(user: User, monthKey: string) {
     }
   }, [user.uid])
 
-  return { plan, status, error, saving, savePlan, addExpense, importFromRatibi }
+  useEffect(() => {
+    setRatibiSnapshot(null)
+    setRatibiSync({
+      status: 'connecting',
+      lastExportedAt: null,
+      fromCache: false,
+      error: '',
+    })
+
+    return subscribeToRatibiSync(user.uid, monthKey, (nextSnapshot) => {
+      setRatibiSnapshot(nextSnapshot)
+      if (!nextSnapshot) {
+        setRatibiSync({
+          status: 'waiting',
+          lastExportedAt: null,
+          fromCache: false,
+          error: '',
+        })
+        return
+      }
+      setRatibiSync({
+        status: 'syncing',
+        lastExportedAt: nextSnapshot.bundle.exportedAt,
+        fromCache: nextSnapshot.fromCache,
+        error: '',
+      })
+    }, (cause) => {
+      setRatibiSnapshot(null)
+      setRatibiSync({
+        status: 'error',
+        lastExportedAt: null,
+        fromCache: false,
+        error: getFirebaseErrorMessage(cause, 'تعذر الاتصال بتطبيق راتبي.'),
+      })
+    })
+  }, [monthKey, user.uid])
+
+  useEffect(() => {
+    if (!ratibiSnapshot) return
+
+    const { bundle, fromCache } = ratibiSnapshot
+    const alreadyImported = plan?.source === 'ratibi'
+      && plan.sourceExportedAt === bundle.exportedAt
+
+    if (alreadyImported) {
+      importingExportRef.current = null
+      setRatibiSync({
+        status: 'connected',
+        lastExportedAt: bundle.exportedAt,
+        fromCache,
+        error: '',
+      })
+      return
+    }
+
+    if (importingExportRef.current === bundle.exportedAt) return
+    importingExportRef.current = bundle.exportedAt
+    setRatibiSync({
+      status: 'syncing',
+      lastExportedAt: bundle.exportedAt,
+      fromCache,
+      error: '',
+    })
+
+    void importFromRatibi(bundle)
+      .then(() => {
+        setRatibiSync({
+          status: 'connected',
+          lastExportedAt: bundle.exportedAt,
+          fromCache,
+          error: '',
+        })
+      })
+      .catch((cause: unknown) => {
+        importingExportRef.current = null
+        setRatibiSync({
+          status: 'error',
+          lastExportedAt: bundle.exportedAt,
+          fromCache,
+          error: getFirebaseErrorMessage(cause, 'وصلت بيانات راتبي لكن تعذر حفظها.'),
+        })
+      })
+  }, [importFromRatibi, plan?.source, plan?.sourceExportedAt, ratibiSnapshot])
+
+  return {
+    plan,
+    status,
+    error,
+    saving,
+    ratibiSync,
+    savePlan,
+    addExpense,
+    importFromRatibi,
+  }
 }

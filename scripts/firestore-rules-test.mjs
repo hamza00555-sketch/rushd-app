@@ -115,6 +115,34 @@ try {
     transactions: [],
   }
   const ratibiPlanReference = doc(ownerDb, 'users', ownerId, 'monthlyPlans', ratibiMonth)
+  const ratibiSyncReference = doc(ownerDb, 'users', ownerId, 'ratibiSync', ratibiMonth)
+  await assertSucceeds(setDoc(ratibiSyncReference, {
+    sourceApp: 'ratibi',
+    sourceVersion: 1,
+    bundle: ratibiSnapshot,
+    updatedAt: serverTimestamp(),
+  }))
+  await assertSucceeds(getDoc(ratibiSyncReference))
+  await assertFails(getDoc(doc(memberDb, 'users', ownerId, 'ratibiSync', ratibiMonth)))
+  await assertFails(getDoc(doc(guestDb, 'users', ownerId, 'ratibiSync', ratibiMonth)))
+  await assertFails(setDoc(doc(ownerDb, 'users', ownerId, 'ratibiSync', '2026-09'), {
+    sourceApp: 'ratibi',
+    sourceVersion: 1,
+    bundle: ratibiSnapshot,
+    updatedAt: serverTimestamp(),
+  }))
+  await assertFails(setDoc(doc(ownerDb, 'users', ownerId, 'ratibiSync', ratibiMonth), {
+    sourceApp: 'unknown-app',
+    sourceVersion: 1,
+    bundle: ratibiSnapshot,
+    updatedAt: serverTimestamp(),
+  }))
+  await assertFails(setDoc(doc(ownerDb, 'users', ownerId, 'ratibiSync', ratibiMonth), {
+    sourceApp: 'ratibi',
+    sourceVersion: 1,
+    bundle: { ...ratibiSnapshot, schema: 'unknown.schema' },
+    updatedAt: serverTimestamp(),
+  }))
   await assertSucceeds(setDoc(ratibiPlanReference, {
     salary: 16500,
     categories: [{ id: 'commitments', title: 'Commitments', icon: 'C', limit: 2166, spent: 2166, tone: 'lavender' }],

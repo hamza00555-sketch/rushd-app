@@ -131,6 +131,7 @@
   box-shadow: 0 15px 26px rgba(63, 58, 155, .20);
   font-size: 13px;
   font-weight: 800;
+  text-decoration: none;
 }
 
 .ratibi-import-button:disabled {
@@ -169,6 +170,31 @@
   background: rgba(36, 151, 118, .10);
   font-size: 11px;
   font-weight: 700;
+}
+
+.ratibi-manual-fallback {
+  border: 1px solid rgba(91, 87, 214, .11);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .58);
+}
+
+.ratibi-manual-fallback > summary {
+  padding: 13px 15px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.ratibi-manual-fallback[open] > summary {
+  border-bottom: 1px solid rgba(91, 87, 214, .09);
+}
+
+.ratibi-manual-fallback .ratibi-paste-card {
+  border: 0;
+  border-radius: 0 0 17px 17px;
+  box-shadow: none;
 }
 
 .ratibi-paste-card {

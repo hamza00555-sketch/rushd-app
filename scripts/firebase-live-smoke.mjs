@@ -220,6 +220,16 @@ try {
     occurredAt: serverTimestamp(),
     createdAt: serverTimestamp(),
   })
+  try {
+    await setDoc(doc(ownerDb, 'users', ownerUid, 'ratibiSync', nextMonthKey), {
+      sourceApp: 'ratibi',
+      sourceVersion: 1,
+      bundle: ratibiSnapshot,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (cause) {
+    throw new Error('Live Firestore rules do not allow the private Ratibi sync channel yet. Deploy the repository firestore.rules before rerunning this smoke test.', { cause })
+  }
   await setDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', nextMonthKey), {
     salary: 12500,
     categories: [
@@ -348,6 +358,10 @@ try {
     'A household member could read the owner Ratibi import.',
   )
   await expectPermissionDenied(
+    () => getDoc(doc(memberDb, 'users', ownerUid, 'ratibiSync', nextMonthKey)),
+    'A household member could read the owner Ratibi sync channel.',
+  )
+  await expectPermissionDenied(
     () => getDoc(doc(memberDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId)),
     'A household member could read an owner transaction.',
   )
@@ -403,6 +417,7 @@ try {
 
   const ownerPlanSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey))
   const nextMonthSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', nextMonthKey))
+  const ratibiSyncSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'ratibiSync', nextMonthKey))
   const ownerTransactionSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId))
   const ownerGoalSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'financialGoals', goalId))
   const ownerScenarioSnapshot = await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
@@ -410,18 +425,20 @@ try {
   assert.equal(nextMonthSnapshot.data()?.salary, 12500, 'Creating a new month damaged monthly history.')
   assert.equal(nextMonthSnapshot.data()?.source, 'ratibi', 'Ratibi import source was not persisted.')
   assert.equal(nextMonthSnapshot.data()?.ratibiSnapshot?.budgets?.[0]?.kind, 'wishes', 'Ratibi wishes budget was not persisted.')
+  assert.equal(ratibiSyncSnapshot.data()?.bundle?.schema, 'ratibi.rushd.finance', 'Ratibi sync bundle did not persist.')
   assert.equal(ownerTransactionSnapshot.data()?.amount, 125, 'Monthly transaction did not persist.')
   assert.equal(ownerGoalSnapshot.data()?.saved, 250, 'Goal contribution did not persist.')
   assert.equal(ownerScenarioSnapshot.data()?.newSalary, 14000, 'Promotion scenario did not persist.')
   await deleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
   assert.equal((await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))).exists(), false, 'Promotion scenario was not deleted.')
 
-  process.stdout.write('Firebase live smoke test passed: Ratibi monthly import, owner-controlled supermarket budget, member deductions, private monthly data, household permissions, and realtime sync are working.\n')
+  process.stdout.write('Firebase live smoke test passed: private Ratibi sync, automatic-import storage, owner-controlled supermarket budget, member deductions, household permissions, and realtime sync are working.\n')
 } finally {
   if (ownerUid) {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', nextMonthKey))
+    await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'ratibiSync', nextMonthKey))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'investmentAccounts', accountId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'financialGoals', goalId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
