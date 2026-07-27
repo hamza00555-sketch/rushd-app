@@ -16,12 +16,17 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#background)"/>
-  <ellipse cx="32" cy="35" rx="27" ry="11" fill="none" stroke="#e9a97d" stroke-width="4.5" opacity=".68"/>
-  <circle cx="32" cy="33" r="20.5" fill="url(#orb)"/>
-  <ellipse cx="25" cy="25" rx="7" ry="4" transform="rotate(-25 25 25)" fill="#fff" opacity=".18"/>
-  <circle cx="26" cy="32" r="2.2" fill="#252044"/>
-  <circle cx="38" cy="32" r="2.2" fill="#252044"/>
-  <path d="M27.5 39c3 2.7 6 2.7 9 0" fill="none" stroke="#252044" stroke-width="2.1" stroke-linecap="round"/>
+  <ellipse cx="32" cy="35" rx="27" ry="10.5" fill="none" stroke="#e9a97d" stroke-width="4.6" opacity=".72"/>
+  <ellipse cx="13.5" cy="37" rx="5" ry="8.5" transform="rotate(18 13.5 37)" fill="#5547ad"/>
+  <ellipse cx="50.5" cy="37" rx="5" ry="8.5" transform="rotate(-18 50.5 37)" fill="#5547ad"/>
+  <ellipse cx="24" cy="52.5" rx="7" ry="4" fill="#443890"/>
+  <ellipse cx="40" cy="52.5" rx="7" ry="4" fill="#443890"/>
+  <circle cx="32" cy="32" r="20.5" fill="url(#orb)"/>
+  <ellipse cx="25" cy="23" rx="7" ry="3.5" transform="rotate(-25 25 23)" fill="#fff" opacity=".3"/>
+  <ellipse cx="25.5" cy="31" rx="2.5" ry="3.2" fill="#201b43"/>
+  <ellipse cx="38.5" cy="31" rx="2.5" ry="3.2" fill="#201b43"/>
+  <circle cx="26.3" cy="30" r=".65" fill="#fff"/>
+  <circle cx="39.3" cy="30" r=".65" fill="#fff"/>
+  <path d="M27.5 38.5c3 2.8 6 2.8 9 0" fill="none" stroke="#201b43" stroke-width="2.1" stroke-linecap="round"/>
   <path d="M6.5 35.5c6 8.5 17.5 12.3 29.5 11 10.2-1 17.4-5.2 21.5-10.5" fill="none" stroke="url(#orbit)" stroke-width="4.8" stroke-linecap="round"/>
-  <path d="m51 8 1.5 4.2 4.2 1.5-4.2 1.5L51 19.4l-1.5-4.2-4.2-1.5 4.2-1.5Z" fill="#ef7c72"/>
 </svg>

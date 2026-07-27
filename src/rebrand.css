@@ -25,10 +25,45 @@
   --shadow-soft: 0 9px 28px rgba(63, 53, 101, .065);
 }
 
+html,
+body,
+#root {
+  direction: rtl;
+  text-align: right;
+}
+
 body {
   color: var(--ink);
   background: var(--canvas);
   text-rendering: optimizeLegibility;
+}
+
+.app-canvas,
+.phone-app,
+.screen-content,
+.auth-screen,
+.auth-welcome,
+.setup-canvas,
+.month-setup-card,
+.launch-tools-sheet,
+.household-sheet,
+.promotion-sheet,
+.wealth-sheet,
+.privacy-dialog {
+  direction: rtl;
+  text-align: right;
+}
+
+button,
+input,
+select,
+textarea {
+  text-align: right;
+}
+
+input[type='email'] {
+  direction: ltr;
+  text-align: right;
 }
 
 button,
@@ -99,7 +134,10 @@ summary:focus-visible {
 
 /* New mascot: a real rendered object with correct orbital occlusion. */
 .rushd-character-wrap {
+  right: 0;
+  left: auto;
   gap: 12px;
+  direction: rtl;
 }
 
 .rushd-character {
@@ -124,23 +162,13 @@ summary:focus-visible {
 .rushd-character img {
   position: relative;
   z-index: 2;
-  width: 112%;
+  width: 108%;
   max-width: none;
   height: auto;
   display: block;
   user-select: none;
   pointer-events: none;
-  filter: drop-shadow(0 17px 17px rgba(56, 46, 105, .16));
-}
-
-.rushd-image-glow {
-  position: absolute;
-  z-index: 0;
-  inset: 15% 8% 4%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(184, 175, 232, .38), transparent 68%);
-  filter: blur(12px);
-  transform: scale(.92);
+  filter: drop-shadow(0 13px 9px rgba(56, 46, 105, .12));
 }
 
 .rushd-mood-thinking img { transform: rotate(-1.5deg); }
@@ -150,7 +178,7 @@ summary:focus-visible {
   max-width: 276px;
   padding: 11px 14px;
   border: 1px solid rgba(83, 73, 124, .07);
-  border-radius: 18px 18px 6px 18px;
+  border-radius: 18px 18px 18px 6px;
   color: var(--ink-soft);
   background: rgba(255, 253, 250, .94);
   box-shadow: 0 10px 26px rgba(63, 53, 101, .075);
@@ -204,6 +232,7 @@ summary:focus-visible {
 .auth-character .rushd-character-wrap {
   width: 100%;
   justify-content: space-between;
+  direction: rtl;
 }
 
 .auth-character .rushd-bubble {
@@ -285,6 +314,30 @@ summary:focus-visible {
   color: #aaa5b6;
 }
 
+.auth-brand,
+.auth-tabs,
+.auth-main-form,
+.auth-main-form label,
+.auth-copy,
+.auth-trust-row,
+.setup-topline,
+.topbar,
+.profile,
+.topbar-actions,
+.bottom-nav,
+.launch-tools-sheet header,
+.launch-tool-card,
+.month-switcher,
+.section-title,
+.transaction-row,
+.market-expense-row,
+.member-row,
+.permission-row,
+.activity-list article {
+  direction: rtl;
+  text-align: right;
+}
+
 .auth-submit,
 .month-setup-card form > button,
 .shared-entry-form > button[type='submit'],
@@ -358,6 +411,7 @@ summary:focus-visible {
 .character-dock .rushd-character-wrap {
   width: 100%;
   justify-content: flex-start;
+  direction: rtl;
 }
 
 .character-dock .rushd-bubble {

@@ -46,7 +46,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
   }
 
   return (
-    <main className="auth-screen">
+    <main className="auth-screen" dir="rtl">
       <motion.section className="auth-welcome" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <div className="auth-brand">
           <span className="auth-logo" aria-hidden="true"><img src="/icons/icon-192.png" alt="" width="44" height="44" /></span>

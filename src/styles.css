@@ -18,9 +18,9 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { direction: rtl; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body, #root { min-height: 100%; margin: 0; }
-body { overscroll-behavior: none; }
+body { overscroll-behavior: none; text-align: right; }
 button { font: inherit; }
 button:focus-visible { outline: 3px solid rgba(91,87,214,.28); outline-offset: 3px; }
 
@@ -42,7 +42,7 @@ button:focus-visible { outline: 3px solid rgba(91,87,214,.28); outline-offset: 3
 .online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); box-shadow: 0 0 0 5px rgba(255,111,97,.12); }
 
 .character-dock { position: relative; height: 76px; z-index: 9; }
-.rushd-character-wrap { position: absolute; left: 0; top: 1px; display: flex; align-items: center; gap: 8px; direction: ltr; }
+.rushd-character-wrap { position: absolute; right: 0; top: 1px; display: flex; align-items: center; gap: 8px; direction: rtl; }
 .rushd-character { appearance: none; border: 0; background: transparent; position: relative; padding: 0; overflow: visible; display: grid; place-items: center; }
 .rushd-character:disabled { cursor: default; }
 .rushd-sm .rushd-character { width: 60px; height: 60px; }

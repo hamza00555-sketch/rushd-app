@@ -569,7 +569,7 @@ function MonthSetup({
   }
 
   return (
-    <div className="app-canvas setup-canvas">
+    <div className="app-canvas setup-canvas" dir="rtl">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
       <main className="month-setup-card">
         <div className="setup-topline"><span className="auth-logo"><img src="/icons/icon-192.png" alt="" width="44" height="44" /></span><button type="button" onClick={() => void onLogout()}><Icon name="logout" size={15} /> تسجيل الخروج</button></div>
@@ -704,7 +704,7 @@ export default function App({ user, displayName, onSaveDisplayName, onLogout }: 
   }
 
   return (
-    <div className="app-canvas">
+    <div className="app-canvas" dir="rtl">
       <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
       <div className="phone-app">
         <header className="topbar">
