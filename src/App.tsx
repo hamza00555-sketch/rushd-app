@@ -4,7 +4,7 @@ import type { User } from 'firebase/auth'
 import { Icon, type IconName } from './components/Icon'
 import { RushdCharacter } from './components/RushdCharacter'
 import { useSharedModules, type SharedSyncStatus } from './hooks/useSharedModules'
-import { useMonthlyPlan } from './hooks/useMonthlyPlan'
+import { useMonthlyPlan, type RatibiSyncState } from './hooks/useMonthlyPlan'
 import { formatSar, getSpentPercentage } from './lib/finance'
 import {
   getFinancialSignals,
@@ -36,10 +36,12 @@ type AppProps = {
 
 const tabMessages: Record<Tab, string> = {
   home: 'هذه قراءة شهرِك الحالي، وكل رقم هنا محفوظ في حسابك الخاص.',
-  month: 'انسخ بياناتك من راتبي، وأنا أرتّب قراءتها هنا بدون إدخال يدوي.',
+  month: 'اربط راتبي مرة واحدة، وبعدها تصل تحديثاتك هنا تلقائيًا.',
   wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
   market: 'كل مشتريات السوبرماركت تنخصم فورًا، والمتبقي واضح لكل شخص عنده صلاحية.',
 }
+
+const RATIBI_APP_URL = import.meta.env.VITE_RATIBI_APP_URL || 'https://ratebi-salary-app2.vercel.app'
 
 const categoryIcons: Record<string, IconName> = {
   needs: 'home',
@@ -158,7 +160,7 @@ function EmptyHomeView({ onOpenMonth }: { onOpenMonth: () => void }) {
         <div className="hero-copy">
           <span>رُشد + راتبي</span>
           <strong>بياناتك لسه ما وصلت.</strong>
-          <p>صدّر ملخصك من راتبي، وبعدها رُشد يرتب الالتزامات والأهداف والميزانيات بدون ما تعيد إدخال أي رقم.</p>
+          <p>اربط راتبي بنفس حسابك مرة واحدة، وبعدها رُشد يرتب الالتزامات والأهداف والميزانيات تلقائيًا.</p>
         </div>
         <motion.div className="health-score empty-score" animate={{ y: [0, -5, 0] }} transition={{ duration: 3.8, repeat: Infinity }}>
           <Icon name="spark" size={28} />
@@ -168,10 +170,10 @@ function EmptyHomeView({ onOpenMonth }: { onOpenMonth: () => void }) {
       </section>
 
       <section className="section-block ratibi-empty-explainer">
-        <div className="section-title"><div><span>مرة واحدة</span><h2>كيف يوصل ملخصك؟</h2></div></div>
-        <div><span>١</span><p>من تطبيق راتبي اضغط «إرسال إلى رُشد».</p></div>
-        <div><span>٢</span><p>ارجع لرُشد واضغط «استيراد البيانات».</p></div>
-        <div><span>٣</span><p>تظهر قراءتك مرتبة وتُحفظ في حسابك الخاص.</p></div>
+        <div className="section-title"><div><span>مرة واحدة</span><h2>كيف يبدأ الربط؟</h2></div></div>
+        <div><span>١</span><p>افتح راتبي وسجّل الدخول بنفس حساب رُشد.</p></div>
+        <div><span>٢</span><p>اضغط «ربط رُشد» أول مرة فقط.</p></div>
+        <div><span>٣</span><p>بعدها تصل التحديثات وتترتب هنا بدون نسخ أو لصق.</p></div>
       </section>
     </motion.main>
   )
@@ -181,24 +183,39 @@ function MonthView({
   plan,
   onImport,
   saving,
+  ratibiSync,
 }: {
   plan: MonthlyPlan | null
   onImport: (bundle: RatibiFinanceBundleV1) => Promise<void>
   saving: boolean
+  ratibiSync: RatibiSyncState
 }) {
-  const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteValue, setPasteValue] = useState('')
   const [importError, setImportError] = useState('')
   const [importNotice, setImportNotice] = useState('')
   const bundle = plan?.ratibi ?? null
   const snapshot = plan ? getFinancialSnapshot(plan.salary, plan.categories) : null
-  const syncLabel = plan?.hasPendingWrites
-    ? 'جاري الحفظ…'
-    : plan?.fromCache
-      ? 'نسخة محفوظة على الجهاز'
-      : bundle
-        ? `آخر تحديث ${new Date(bundle.exportedAt).toLocaleString('ar-SA', { dateStyle: 'medium', timeStyle: 'short' })}`
-        : 'بانتظار أول استيراد من راتبي'
+  const connected = ratibiSync.status === 'connected'
+  const connectionTitle = connected
+    ? 'متصل مباشرة بتطبيق راتبي'
+    : ratibiSync.status === 'syncing'
+      ? 'وصل تحديث من راتبي'
+      : ratibiSync.status === 'error'
+        ? 'الربط يحتاج مراجعة'
+        : 'بانتظار ربط تطبيق راتبي'
+  const syncLabel = plan?.hasPendingWrites || ratibiSync.status === 'syncing'
+    ? 'جاري ترتيب وحفظ آخر تحديث…'
+    : ratibiSync.status === 'connecting'
+      ? 'جاري البحث عن اتصال راتبي…'
+      : ratibiSync.status === 'waiting'
+        ? 'لم تصل مزامنة من راتبي لهذا الشهر بعد'
+        : ratibiSync.status === 'error'
+          ? ratibiSync.error
+          : ratibiSync.lastExportedAt
+            ? `آخر مزامنة ${new Date(ratibiSync.lastExportedAt).toLocaleString('ar-SA', { dateStyle: 'medium', timeStyle: 'short' })}`
+            : plan?.fromCache
+              ? 'نسخة محفوظة على الجهاز'
+              : 'متصل'
 
   const importText = async (value: string) => {
     setImportError('')
@@ -206,31 +223,12 @@ function MonthView({
     try {
       const nextBundle = parseRatibiBundle(value)
       await onImport(nextBundle)
-      setPasteOpen(false)
       setPasteValue('')
-      setImportNotice(`تم تحديث ${formatMonthLabel(nextBundle.month)} من تطبيق راتبي.`)
+      setImportNotice(`تم استيراد ${formatMonthLabel(nextBundle.month)} يدويًا كنسخة احتياطية.`)
       return true
     } catch (cause: unknown) {
       setImportError(cause instanceof Error ? cause.message : 'تعذر استيراد بيانات راتبي.')
       return false
-    }
-  }
-
-  const importFromClipboard = async () => {
-    setImportError('')
-    setImportNotice('')
-    if (!navigator.clipboard?.readText) {
-      setPasteOpen(true)
-      setImportError('المتصفح لا يسمح بقراءة الحافظة مباشرة. الصق النص المنسوخ هنا.')
-      return
-    }
-    try {
-      const value = await navigator.clipboard.readText()
-      const imported = await importText(value)
-      if (!imported) setPasteOpen(true)
-    } catch {
-      setPasteOpen(true)
-      setImportError('تعذر قراءة الحافظة. الصق النص المنسوخ من راتبي هنا.')
     }
   }
 
@@ -243,33 +241,37 @@ function MonthView({
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className="ratibi-import-card">
         <div className="ratibi-connection-state">
-          <span><Icon name={bundle ? 'check' : 'spark'} size={16} /></span>
-          <b>{bundle ? 'متصل بآخر نسخة من راتبي' : 'جاهز للربط مع راتبي'}</b>
+          <span><Icon name={connected ? 'check' : 'spark'} size={16} /></span>
+          <b>{connectionTitle}</b>
         </div>
         <span>ملخص الشهر</span>
         <h1>{bundle ? `${formatMonthLabel(bundle.month)} مرتّب وجاهز.` : 'بياناتك تبدأ من راتبي، مو من إدخالات جديدة.'}</h1>
         <p>{bundle
-          ? 'رُشد قرأ الدخل والالتزامات والأهداف والميزانيات والحسابات ورتّبها لك في مكان واحد.'
-          : 'من تطبيق راتبي اضغط «إرسال إلى رُشد»، ثم ارجع واضغط الزر هنا. لا تحتاج تكتب راتبك أو التزاماتك مرة ثانية.'}</p>
-        <button type="button" className="ratibi-import-button" onClick={() => void importFromClipboard()} disabled={saving}>
+          ? connected
+            ? 'أي تعديل تحفظه في راتبي يصل إلى رُشد تلقائيًا، وتبقى هذه الصفحة للقراءة والترتيب فقط.'
+            : 'هذه آخر نسخة محفوظة. أكمل الربط المباشر حتى تصل تحديثات راتبي تلقائيًا.'
+          : 'افتح راتبي وسجّل الدخول بنفس حساب رُشد، ثم اربط التطبيقين مرة واحدة.'}</p>
+        <a className="ratibi-import-button" href={`${RATIBI_APP_URL}?connect=rushd`} target="_blank" rel="noreferrer">
           <Icon name="spark" size={19} />
-          {saving ? 'جاري قراءة البيانات…' : bundle ? 'تحديث البيانات من راتبي' : 'استيراد البيانات من راتبي'}
-        </button>
-        <small><Icon name="shield" size={14} /> نقرأ الحافظة فقط عند ضغطك، ولا نضع بياناتك في الرابط أو سجلات المتصفح.</small>
+          {connected ? 'فتح راتبي لإدارة بياناتي' : 'فتح راتبي وإكمال الربط'}
+        </a>
+        <small><Icon name="shield" size={14} /> المزامنة خاصة بحسابك؛ لا نضع أرقامك في الرابط أو الحافظة.</small>
         <div className="ratibi-sync-label">{syncLabel}</div>
       </section>
 
       {importNotice && <div className="ratibi-import-notice" role="status"><Icon name="check" size={17} /> {importNotice}</div>}
       {importError && <div className="inline-form-error ratibi-import-error" role="alert">{importError}</div>}
+      {ratibiSync.status === 'error' && <div className="inline-form-error ratibi-import-error" role="alert">{ratibiSync.error}</div>}
 
-      {pasteOpen && (
+      <details className="ratibi-manual-fallback">
+        <summary>استيراد يدوي احتياطي</summary>
         <form className="ratibi-paste-card" onSubmit={submitPastedBundle}>
-          <div><strong>لصق احتياطي</strong><button type="button" onClick={() => { setPasteOpen(false); setImportError('') }} aria-label="إغلاق اللصق الاحتياطي"><Icon name="close" size={18} /></button></div>
-          <p>الصق النص الذي نسخه تطبيق راتبي كاملًا، ثم اعتمد الاستيراد.</p>
+          <div><strong>استخدمه فقط إذا تعذر الربط المباشر</strong></div>
+          <p>الصق حزمة JSON الكاملة من راتبي، ثم اعتمد الاستيراد.</p>
           <textarea dir="ltr" value={pasteValue} onChange={(event) => setPasteValue(event.target.value)} placeholder='{"schema":"ratibi.rushd.finance",...}' aria-label="بيانات راتبي بصيغة JSON" />
-          <button type="submit" disabled={saving || !pasteValue.trim()}>{saving ? 'جاري الاستيراد…' : 'اعتماد البيانات المنسوخة'}</button>
+          <button type="submit" disabled={saving || !pasteValue.trim()}>{saving ? 'جاري الاستيراد…' : 'اعتماد النسخة الاحتياطية'}</button>
         </form>
-      )}
+      </details>
 
       {plan && snapshot && (
         <>
@@ -645,7 +647,7 @@ export default function App({ user, displayName, onLogout }: AppProps) {
 
   const pressCharacter = () => {
     if (!plan) {
-      setMessage('انسخ ملخصك من راتبي، وبعدها اضغط زر الاستيراد في حساب الشهر.')
+      setMessage('اربط حساب راتبي مرة واحدة، وبعدها تصل تحديثات الشهر تلقائيًا.')
       return
     }
     const snapshot = getFinancialSnapshot(plan.salary, plan.categories)
@@ -684,7 +686,7 @@ export default function App({ user, displayName, onLogout }: AppProps) {
               : <EmptyHomeView key="home-empty" onOpenMonth={() => changeTab('month')} />
           )}
           {tab === 'month' && (
-            <MonthView key="month" plan={plan} onImport={importFromRatibi} saving={monthly.saving}/>
+            <MonthView key="month" plan={plan} onImport={importFromRatibi} saving={monthly.saving} ratibiSync={monthly.ratibiSync}/>
           )}
           {tab === 'wishes' && (
             <WishesView key="wishes" wishes={shared.wishes} monthlyBudget={getRatibiWishesBudget(plan?.ratibi ?? null)} onAdd={addWish} access={shared.permissions.wishes} syncStatus={shared.status} syncError={shared.error}/>

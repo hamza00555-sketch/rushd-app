@@ -49,25 +49,44 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/householdInvites/$(request.auth.token.email)).data;
     }
 
+    function validRatibiBundle(bundle, monthId) {
+      return bundle is map
+        && bundle.schema == 'ratibi.rushd.finance'
+        && bundle.version == 1
+        && bundle.month == monthId
+        && bundle.currency == 'SAR'
+        && bundle.income is map
+        && bundle.income.salary is number
+        && bundle.income.salary > 0
+        && bundle.income.additional is list
+        && bundle.income.additional.size() <= 200
+        && bundle.obligations is list
+        && bundle.obligations.size() <= 200
+        && bundle.goals is list
+        && bundle.goals.size() <= 200
+        && bundle.budgets is list
+        && bundle.budgets.size() <= 200
+        && bundle.accounts is list
+        && bundle.accounts.size() <= 200
+        && bundle.transactions is list
+        && bundle.transactions.size() <= 200;
+    }
+
     function validRatibiSnapshot(monthId) {
-      return request.resource.data.ratibiSnapshot is map
-        && request.resource.data.ratibiSnapshot.schema == 'ratibi.rushd.finance'
-        && request.resource.data.ratibiSnapshot.version == 1
-        && request.resource.data.ratibiSnapshot.month == monthId
-        && request.resource.data.ratibiSnapshot.currency == 'SAR'
-        && request.resource.data.ratibiSnapshot.income is map
-        && request.resource.data.ratibiSnapshot.income.salary is number
-        && request.resource.data.ratibiSnapshot.income.salary > 0
-        && request.resource.data.ratibiSnapshot.obligations is list
-        && request.resource.data.ratibiSnapshot.obligations.size() <= 200
-        && request.resource.data.ratibiSnapshot.goals is list
-        && request.resource.data.ratibiSnapshot.goals.size() <= 200
-        && request.resource.data.ratibiSnapshot.budgets is list
-        && request.resource.data.ratibiSnapshot.budgets.size() <= 200
-        && request.resource.data.ratibiSnapshot.accounts is list
-        && request.resource.data.ratibiSnapshot.accounts.size() <= 200
-        && request.resource.data.ratibiSnapshot.transactions is list
-        && request.resource.data.ratibiSnapshot.transactions.size() <= 200;
+      return validRatibiBundle(request.resource.data.ratibiSnapshot, monthId);
+    }
+
+    function validRatibiSync(monthId) {
+      return request.resource.data.keys().hasOnly([
+          'sourceApp',
+          'sourceVersion',
+          'bundle',
+          'updatedAt'
+        ])
+        && request.resource.data.sourceApp == 'ratibi'
+        && request.resource.data.sourceVersion == 1
+        && request.resource.data.updatedAt is timestamp
+        && validRatibiBundle(request.resource.data.bundle, monthId);
     }
 
     function validMonthlyPlan(monthId) {
@@ -131,6 +150,11 @@ service cloud.firestore {
           allow read, delete: if isSelf(userId);
           allow create, update: if isSelf(userId) && validTransaction();
         }
+      }
+
+      match /ratibiSync/{monthId} {
+        allow read, delete: if isSelf(userId);
+        allow create, update: if isSelf(userId) && validRatibiSync(monthId);
       }
     }
 
