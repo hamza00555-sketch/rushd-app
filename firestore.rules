@@ -127,6 +127,18 @@ service cloud.firestore {
         && request.resource.data.amount > 0;
     }
 
+    function validChildNeed() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.childName is string
+        && request.resource.data.childName.size() > 0
+        && request.resource.data.estimatedCost is number
+        && request.resource.data.estimatedCost >= 0
+        && request.resource.data.completed is bool
+        && request.resource.data.addedBy is string
+        && request.resource.data.addedBy.size() > 0;
+    }
+
     match /users/{userId} {
       allow create, read, update, delete: if isSelf(userId);
 
@@ -207,6 +219,17 @@ service cloud.firestore {
         allow update: if canEditModule(householdId, 'wishes')
           && request.resource.data.ownerId == resource.data.ownerId;
         allow delete: if canEditModule(householdId, 'wishes');
+      }
+
+      match /childrenNeeds/{needId} {
+        allow read: if canViewModule(householdId, 'noor');
+        allow create: if canEditModule(householdId, 'noor')
+          && request.resource.data.addedBy == request.auth.uid
+          && validChildNeed();
+        allow update: if canEditModule(householdId, 'noor')
+          && request.resource.data.addedBy == resource.data.addedBy
+          && validChildNeed();
+        allow delete: if canEditModule(householdId, 'noor');
       }
     }
 

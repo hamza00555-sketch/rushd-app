@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { User } from 'firebase/auth'
 import { Icon, type IconName } from './components/Icon'
@@ -17,7 +17,7 @@ import {
   type MonthlyPlan,
 } from './lib/monthlyPlanRepository'
 import type { AccessLevel } from './lib/household'
-import type { SharedMarketBudget, SharedMarketExpense, SharedWish } from './lib/householdRepository'
+import type { SharedChildNeed, SharedMarketBudget, SharedMarketExpense, SharedWish } from './lib/householdRepository'
 import {
   getRatibiIncomeTotal,
   getRatibiWishesBudget,
@@ -26,19 +26,29 @@ import {
   type RatibiFinanceBundleV1,
 } from './lib/ratibiImport'
 
-type Tab = 'home' | 'month' | 'wishes' | 'market'
+type Tab = 'home' | 'month' | 'wishes' | 'children' | 'market'
 
 type AppProps = {
   user: User
   displayName: string
   onLogout: () => Promise<void>
+  onHouseholdRoleChange?: (role: 'owner' | 'member' | null) => void
 }
 
 const tabMessages: Record<Tab, string> = {
   home: 'هذه قراءة شهرِك الحالي، وكل رقم هنا محفوظ في حسابك الخاص.',
   month: 'اربط راتبي مرة واحدة، وبعدها تصل تحديثاتك هنا تلقائيًا.',
   wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
+  children: 'احتياجات الأبناء مشتركة مع البيت وتظهر حسب صلاحيتك.',
   market: 'كل مشتريات السوبرماركت تنخصم فورًا، والمتبقي واضح لكل شخص عنده صلاحية.',
+}
+
+const tabNavigation: Record<Tab, { label: string; icon: IconName }> = {
+  home: { label: 'الرئيسية', icon: 'home' },
+  month: { label: 'حساب الشهر', icon: 'month' },
+  wishes: { label: 'الأماني', icon: 'heart' },
+  children: { label: 'الأبناء', icon: 'users' },
+  market: { label: 'السوبرماركت', icon: 'cart' },
 }
 
 const RATIBI_APP_URL = import.meta.env.VITE_RATIBI_APP_URL || 'https://ratebi-salary-app2.vercel.app'
@@ -385,6 +395,7 @@ function WishesView({
   monthlyBudget,
   onAdd,
   access,
+  showRatibiBudget,
   syncStatus,
   syncError,
 }: {
@@ -392,6 +403,7 @@ function WishesView({
   monthlyBudget: RatibiBudget | null
   onAdd: (input: { title: string; icon: string; target: number; deadline: string }) => Promise<void>
   access: AccessLevel
+  showRatibiBudget: boolean
   syncStatus: SharedSyncStatus
   syncError: string
 }) {
@@ -445,15 +457,18 @@ function WishesView({
           <p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p>
         </div>
       </section>
-      {monthlyBudget && (
+      {showRatibiBudget && monthlyBudget && (
         <section className="wish-monthly-budget">
           <div><span>ميزانية الأماني من راتبي</span><strong>{formatSar(Math.max(0, monthlyBudget.limit - monthlyBudget.spent))} ريال</strong><small>متبقي من {formatSar(monthlyBudget.limit)} ريال هذا الشهر</small></div>
           <ProgressBar value={getSpentPercentage(monthlyBudget.spent, monthlyBudget.limit)} />
           <p>تتحدث تلقائيًا عند استيراد نسخة جديدة من تطبيق راتبي.</p>
         </section>
       )}
-      {!monthlyBudget && (
+      {showRatibiBudget && !monthlyBudget && (
         <section className="wish-budget-link-note"><Icon name="spark" size={18} /><div><strong>ميزانية الأماني تأتي من راتبي</strong><p>أضفها هناك ضمن الميزانيات، ثم حدّث بيانات حساب الشهر في رُشد.</p></div></section>
+      )}
+      {!showRatibiBudget && access !== 'none' && (
+        <section className="wish-budget-link-note member-share-note"><Icon name="users" size={18} /><div><strong>ما تحتاج تربط حسابك براتبي</strong><p>هذه الأماني تأتيك من مساحة العائلة حسب الصلاحية التي حددها رب الأسرة.</p></div></section>
       )}
       {access === 'none' ? (
         <section className="module-empty-state"><span><Icon name="lock" size={24} /></span><strong>هذه الوحدة خاصة</strong><p>مالك البيت لم يفعّل لك الوصول إلى الأماني المشتركة.</p></section>
@@ -478,6 +493,121 @@ function WishesView({
               <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : 'حفظ الأمنية'}</button>
             </form>
           )}
+        </>
+      )}
+      <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
+    </motion.main>
+  )
+}
+
+function ChildrenNeedsView({
+  needs,
+  access,
+  onAdd,
+  onToggle,
+  syncStatus,
+  syncError,
+}: {
+  needs: SharedChildNeed[]
+  access: AccessLevel
+  onAdd: (input: { title: string; childName: string; estimatedCost: number }) => Promise<void>
+  onToggle: (needId: string, completed: boolean) => Promise<void>
+  syncStatus: SharedSyncStatus
+  syncError: string
+}) {
+  const sync = syncMessage(syncStatus, syncError)
+  const [formOpen, setFormOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [childName, setChildName] = useState('')
+  const [estimatedCost, setEstimatedCost] = useState('')
+  const [busyId, setBusyId] = useState('')
+  const [error, setError] = useState('')
+  const pending = needs.filter((need) => !need.completed)
+  const completed = needs.filter((need) => need.completed)
+  const pendingCost = pending.reduce((total, need) => total + need.estimatedCost, 0)
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const amount = estimatedCost.trim() ? parseCurrencyInput(estimatedCost) : 0
+    if (!title.trim() || !Number.isFinite(amount) || amount < 0) {
+      setError('اكتب اسم الاحتياج، وتأكد من المبلغ إن أضفته.')
+      return
+    }
+    setBusyId('new')
+    setError('')
+    try {
+      await onAdd({
+        title: title.trim(),
+        childName: childName.trim() || 'الأبناء',
+        estimatedCost: amount,
+      })
+      setTitle('')
+      setChildName('')
+      setEstimatedCost('')
+      setFormOpen(false)
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'تعذرت إضافة الاحتياج.')
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  const toggle = async (need: SharedChildNeed) => {
+    setBusyId(need.id)
+    setError('')
+    try {
+      await onToggle(need.id, !need.completed)
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'تعذر تحديث الاحتياج.')
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  return (
+    <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
+      <section className="children-needs-hero">
+        <div className="children-needs-icon"><Icon name="users" size={28} /></div>
+        <div><span>مساحة مشتركة للعائلة</span><h1>احتياجات الأبناء</h1><p>سجّلوا الأشياء المطلوبة وتابعوا ما تم توفيره بدون خلطها بأماني الكبار.</p></div>
+        {access !== 'none' && (
+          <div className="children-needs-summary">
+            <article><span>المتبقي</span><strong>{pending.length}</strong></article>
+            <article><span>التكلفة المتوقعة</span><strong>{formatMarketSar(pendingCost)} <small>ريال</small></strong></article>
+          </div>
+        )}
+      </section>
+
+      {access === 'none' ? (
+        <section className="module-empty-state"><span><Icon name="lock" size={24} /></span><strong>هذه الوحدة خاصة</strong><p>رب الأسرة لم يفعّل لك الوصول إلى احتياجات الأبناء.</p></section>
+      ) : (
+        <>
+          <section className="section-block children-needs-list">
+            <div className="section-title"><div><span>القائمة الحالية</span><h2>{pending.length ? `${pending.length} احتياجات بانتظار التوفير` : 'كل الاحتياجات مكتملة'}</h2></div><b>{needs.length}</b></div>
+            {needs.length === 0 && <div className="module-empty-state compact"><span><Icon name="users" size={24} /></span><strong>ما فيه احتياجات مسجلة</strong><p>أضيفوا أول احتياج ليظهر لكل شخص عنده صلاحية.</p></div>}
+            {[...pending, ...completed].map((need) => (
+              <article className={`child-need-row ${need.completed ? 'is-complete' : ''}`} key={need.id}>
+                <button type="button" onClick={() => void toggle(need)} disabled={access !== 'edit' || busyId === need.id} aria-label={need.completed ? `إعادة ${need.title} إلى القائمة` : `تحديد ${need.title} كمكتمل`}>
+                  {need.completed ? <Icon name="check" size={18} /> : <span />}
+                </button>
+                <div><strong>{need.title}</strong><small>{need.childName} · أضافها {need.addedByName}</small></div>
+                <b>{need.estimatedCost > 0 ? `${formatMarketSar(need.estimatedCost)} ريال` : 'بدون مبلغ'}</b>
+              </article>
+            ))}
+          </section>
+
+          {access === 'edit' && !formOpen && <button type="button" className="primary-button" onClick={() => setFormOpen(true)}><Icon name="plus" size={17} /> إضافة احتياج</button>}
+          {access === 'view' && <div className="view-only-note">صلاحيتك الحالية: عرض احتياجات الأبناء فقط</div>}
+          {formOpen && (
+            <form className="shared-entry-form children-needs-form" onSubmit={submit}>
+              <div className="shared-form-heading"><strong>احتياج جديد</strong><button type="button" onClick={() => setFormOpen(false)} aria-label="إلغاء">×</button></div>
+              <input data-autofocus placeholder="الاحتياج — مثل حذاء أو حفاضات" value={title} onChange={(event) => setTitle(event.target.value)} />
+              <input placeholder="اسم الطفل — اختياري" value={childName} onChange={(event) => setChildName(event.target.value)} />
+              <input inputMode="decimal" placeholder="التكلفة المتوقعة — اختياري" value={estimatedCost} onChange={(event) => setEstimatedCost(event.target.value)} />
+              {error && <div className="inline-form-error" role="alert">{error}</div>}
+              <button type="submit" disabled={busyId === 'new'}>{busyId === 'new' ? 'جاري الحفظ…' : 'حفظ الاحتياج'}</button>
+            </form>
+          )}
+          {error && !formOpen && <div className="inline-form-error" role="alert">{error}</div>}
         </>
       )}
       <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
@@ -602,7 +732,11 @@ function MarketView({
               <div><span>ميزانية الشهر</span><b>{formatMarketSar(budgetAmount)} ريال</b></div>
               <div><span>المصروف حتى الآن</span><b>{formatMarketSar(spent)} ريال</b></div>
             </div>
-            <small className="market-budget-source">{canManageBudget ? 'أنت المسؤول عن تحديد الميزانية' : 'حددها رب الأسرة وتُحدّث عندك تلقائيًا'}</small>
+            <small className="market-budget-source">
+              {canManageBudget
+                ? `آخر تعديل بواسطة ${budget.updatedByName} · ${budget.updatedAtLabel}`
+                : `حددها ${budget.updatedByName} · ${budget.updatedAtLabel} · وتتحدث عندك تلقائيًا`}
+            </small>
           </>
         )}
       </section>
@@ -657,7 +791,22 @@ function MarketView({
   )
 }
 
-export default function App({ user, displayName, onLogout }: AppProps) {
+function MemberAccessEmptyView({ syncError }: { syncError: string }) {
+  return (
+    <motion.main className="screen-content" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+      <section className="member-access-hero">
+        <span><Icon name="users" size={28} /></span>
+        <small>حساب عائلي</small>
+        <h1>أنت داخل البيت، لكن ما عندك وحدة مفعّلة حتى الآن.</h1>
+        <p>اطلب من رب الأسرة تفعيل الأماني أو السوبرماركت أو احتياجات الأبناء. التغيير سيظهر هنا مباشرة بدون تسجيل خروج أو ربط راتبي.</p>
+      </section>
+      {syncError && <div className="app-inline-alert" role="alert">{syncError}</div>}
+      <section className="shared-status sync-synced"><span className="live-dot"/><div><strong>ننتظر الصلاحيات</strong><p>اتصال البيت شغّال، وأول تعديل من المالك سيظهر تلقائيًا.</p></div></section>
+    </motion.main>
+  )
+}
+
+export default function App({ user, displayName, onLogout, onHouseholdRoleChange }: AppProps) {
   const [tab, setTab] = useState<Tab>('home')
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey())
   const [marketMonthKey, setMarketMonthKey] = useState(getCurrentMonthKey())
@@ -666,8 +815,17 @@ export default function App({ user, displayName, onLogout }: AppProps) {
   const monthly = useMonthlyPlan(user, monthKey)
   const shared = useSharedModules(user, marketMonthKey)
   const plan = monthly.plan
+  const memberMode = shared.status === 'synced' && !shared.isHouseholdOwner
+  const memberTabs = useMemo<Tab[]>(() => {
+    const tabs: Tab[] = []
+    if (shared.permissions.wishes !== 'none') tabs.push('wishes')
+    if (shared.permissions.noor !== 'none') tabs.push('children')
+    if (shared.permissions.market !== 'none') tabs.push('market')
+    return tabs
+  }, [shared.permissions.market, shared.permissions.noor, shared.permissions.wishes])
+  const navigationTabs = memberMode ? memberTabs : (['home', 'month', 'wishes', 'children', 'market'] as Tab[])
 
-  const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' ? 'happy' : 'calm', [tab])
+  const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' || tab === 'children' ? 'happy' : 'calm', [tab])
   const marketDataIsCurrent = shared.marketBudget?.monthKey === marketMonthKey
   const marketExpenses = marketDataIsCurrent ? shared.marketExpenses : []
   const marketBudget = marketDataIsCurrent ? shared.marketBudget : null
@@ -675,6 +833,23 @@ export default function App({ user, displayName, onLogout }: AppProps) {
   const marketRemaining = marketBudget ? marketBudget.amount - marketSpent : null
   const safeName = displayName.trim() || user.displayName?.trim() || user.email?.split('@')[0] || 'عضو رُشد'
   const initial = Array.from(safeName)[0] || 'ر'
+
+  useEffect(() => {
+    if (shared.status === 'connecting') {
+      onHouseholdRoleChange?.(null)
+      return
+    }
+    if (shared.status === 'synced') {
+      onHouseholdRoleChange?.(shared.isHouseholdOwner ? 'owner' : 'member')
+    }
+  }, [onHouseholdRoleChange, shared.isHouseholdOwner, shared.status])
+
+  useEffect(() => {
+    if (!memberMode || memberTabs.length === 0 || memberTabs.includes(tab)) return
+    const next = memberTabs[0]
+    setTab(next)
+    setMessage(tabMessages[next])
+  }, [memberMode, memberTabs, tab])
 
   const changeTab = (next: Tab) => {
     setTab(next)
@@ -692,6 +867,16 @@ export default function App({ user, displayName, onLogout }: AppProps) {
     setMessage('تمت إضافة الأمنية ومزامنتها مع البيت.')
   }
 
+  const addChildNeed = async (input: { title: string; childName: string; estimatedCost: number }) => {
+    await shared.addChildNeed(input)
+    setMessage('تمت إضافة الاحتياج وظهر لكل شخص عنده صلاحية.')
+  }
+
+  const toggleChildNeed = async (needId: string, completed: boolean) => {
+    await shared.toggleChildNeed(needId, completed)
+    setMessage(completed ? 'تم تحديد الاحتياج كمكتمل.' : 'رجّعنا الاحتياج إلى القائمة.')
+  }
+
   const saveMarketBudget = async (amount: number) => {
     await shared.saveMarketBudget(amount)
     setMessage(`تم اعتماد ميزانية السوبرماركت: ${formatMarketSar(amount)} ريال.`)
@@ -706,6 +891,17 @@ export default function App({ user, displayName, onLogout }: AppProps) {
   }
 
   const pressCharacter = () => {
+    if (memberMode) {
+      const messages = [
+        'ما تحتاج تربط حسابك براتبي؛ وحدات العائلة توصلك مباشرة.',
+        'أي تعديل في الصلاحيات أو ميزانية السوبرماركت يظهر عندك لحظيًا.',
+        'راتب رب الأسرة وبياناته الخاصة ما تظهر لأي عضو.',
+      ]
+      const next = counter + 1
+      setCounter(next)
+      setMessage(messages[next % messages.length])
+      return
+    }
     if (!plan) {
       setMessage('اربط حساب راتبي مرة واحدة، وبعدها تصل تحديثات الشهر تلقائيًا.')
       return
@@ -721,11 +917,15 @@ export default function App({ user, displayName, onLogout }: AppProps) {
     setMessage(messages[next % messages.length])
   }
 
-  if (monthly.status === 'loading') {
+  if (shared.status === 'connecting') {
+    return <main className="system-screen"><span className="live-dot"/><h1>جاري ربطك بمساحة البيت…</h1><p>نتحقق من الدعوات وآخر الصلاحيات.</p></main>
+  }
+
+  if (!memberMode && monthly.status === 'loading') {
     return <main className="system-screen"><span className="live-dot"/><h1>جاري تحميل حسابك…</h1><p>لحظة ونجيب آخر نسخة محفوظة من شهرِك.</p></main>
   }
 
-  if (monthly.status === 'error') {
+  if (!memberMode && monthly.status === 'error') {
     return <main className="system-screen" role="alert"><div className="system-mark">!</div><h1>تعذر فتح حساب الشهر.</h1><p>{monthly.error}</p><button type="button" onClick={() => window.location.reload()}>إعادة المحاولة</button><button type="button" className="system-link-button" onClick={() => void onLogout()}>تسجيل الخروج</button></main>
   }
 
@@ -738,18 +938,24 @@ export default function App({ user, displayName, onLogout }: AppProps) {
           <button type="button" className="header-signout" onClick={() => void onLogout()} aria-label="تسجيل الخروج"><Icon name="logout" size={16} /><span>خروج</span></button>
         </header>
         <div className="character-dock"><RushdCharacter mood={mood} size="sm" message={message} interactive onPress={pressCharacter}/></div>
-        {(monthly.error || shared.error) && <div className="app-inline-alert" role="alert">{monthly.error || shared.error}</div>}
-        <AnimatePresence mode="wait">
-          {tab === 'home' && (
+        {(shared.error || (!memberMode && monthly.error)) && <div className="app-inline-alert" role="alert">{shared.error || monthly.error}</div>}
+        {memberMode && memberTabs.length === 0 ? (
+          <MemberAccessEmptyView syncError={shared.error} />
+        ) : (
+          <AnimatePresence mode="wait">
+          {!memberMode && tab === 'home' && (
             plan
               ? <HomeView key="home" salary={plan.salary} categories={plan.categories} wishes={shared.wishes} marketRemaining={marketRemaining} onOpenMonth={() => changeTab('month')}/>
               : <EmptyHomeView key="home-empty" onOpenMonth={() => changeTab('month')} />
           )}
-          {tab === 'month' && (
+          {!memberMode && tab === 'month' && (
             <MonthView key="month" plan={plan} onImport={importFromRatibi} saving={monthly.saving} ratibiSync={monthly.ratibiSync}/>
           )}
           {tab === 'wishes' && (
-            <WishesView key="wishes" wishes={shared.wishes} monthlyBudget={getRatibiWishesBudget(plan?.ratibi ?? null)} onAdd={addWish} access={shared.permissions.wishes} syncStatus={shared.status} syncError={shared.error}/>
+            <WishesView key="wishes" wishes={shared.wishes} monthlyBudget={getRatibiWishesBudget(plan?.ratibi ?? null)} onAdd={addWish} access={shared.permissions.wishes} showRatibiBudget={!memberMode} syncStatus={shared.status} syncError={shared.error}/>
+          )}
+          {tab === 'children' && (
+            <ChildrenNeedsView key="children" needs={shared.childNeeds} access={shared.permissions.noor} onAdd={addChildNeed} onToggle={toggleChildNeed} syncStatus={shared.status} syncError={shared.error}/>
           )}
           {tab === 'market' && (
             <MarketView
@@ -766,13 +972,16 @@ export default function App({ user, displayName, onLogout }: AppProps) {
               syncError={shared.error}
             />
           )}
-        </AnimatePresence>
-        <nav className="bottom-nav" aria-label="التنقل الرئيسي">
-          <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => changeTab('home')} aria-current={tab === 'home' ? 'page' : undefined}><span><Icon name="home" size={21} /></span><small>الرئيسية</small></button>
-          <button type="button" className={tab === 'month' ? 'active' : ''} onClick={() => changeTab('month')} aria-current={tab === 'month' ? 'page' : undefined}><span><Icon name="month" size={21} /></span><small>حساب الشهر</small></button>
-          <button type="button" className={tab === 'wishes' ? 'active' : ''} onClick={() => changeTab('wishes')} aria-current={tab === 'wishes' ? 'page' : undefined}><span><Icon name="heart" size={21} /></span><small>الأماني</small></button>
-          <button type="button" className={tab === 'market' ? 'active' : ''} onClick={() => changeTab('market')} aria-current={tab === 'market' ? 'page' : undefined}><span><Icon name="cart" size={21} /></span><small>السوبرماركت</small></button>
-        </nav>
+          </AnimatePresence>
+        )}
+        {navigationTabs.length > 0 && (
+          <nav className="bottom-nav" style={{ '--nav-columns': navigationTabs.length } as CSSProperties} aria-label="التنقل الرئيسي">
+            {navigationTabs.map((destination) => {
+              const definition = tabNavigation[destination]
+              return <button type="button" className={tab === destination ? 'active' : ''} onClick={() => changeTab(destination)} aria-current={tab === destination ? 'page' : undefined} key={destination}><span><Icon name={definition.icon} size={21} /></span><small>{definition.label}</small></button>
+            })}
+          </nav>
+        )}
       </div>
     </div>
   )

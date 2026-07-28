@@ -33,7 +33,7 @@ export const sharedModules: SharedModule[] = ['market', 'wishes', 'noor']
 export const sharedModuleLabels: Record<SharedModule, { title: string; description: string; icon: string }> = {
   market: { title: 'السوبرماركت', description: 'رب الأسرة يحدد الميزانية، والأعضاء يسجلون المشتريات', icon: '🛒' },
   wishes: { title: 'أماني رُشد', description: 'عرض الأماني المشتركة والمساهمة فيها', icon: '♡' },
-  noor: { title: 'احتياجات نور', description: 'متابعة ميزانية ومشتريات نور', icon: '🧸' },
+  noor: { title: 'احتياجات الأبناء', description: 'عرض احتياجات الأبناء وإضافتها ومتابعتها', icon: '🧸' },
 }
 
 export const accessLabels: Record<AccessLevel, string> = {

@@ -48,6 +48,8 @@ export type SharedWish = {
 export type SharedMarketBudget = {
   monthKey: string
   amount: number
+  updatedByName: string
+  updatedAtLabel: string
 }
 
 export type SharedMarketExpense = {
@@ -59,12 +61,22 @@ export type SharedMarketExpense = {
   dateLabel: string
 }
 
+export type SharedChildNeed = {
+  id: string
+  title: string
+  childName: string
+  estimatedCost: number
+  completed: boolean
+  addedByName: string
+}
+
 export type SharedWorkspaceData = {
   householdId: string
   isOwner: boolean
   wishes: SharedWish[]
   marketBudget: SharedMarketBudget | null
   marketExpenses: SharedMarketExpense[]
+  childNeeds: SharedChildNeed[]
   permissions: Record<SharedModule, AccessLevel>
 }
 
@@ -181,38 +193,55 @@ export const ensureHousehold = async (user: User): Promise<string> => {
   const profileRef = doc(db, 'users', user.uid)
   const profileSnapshot = await getDoc(profileRef)
   const savedHouseholdId = profileSnapshot.exists() ? String(profileSnapshot.data().householdId || '') : ''
-
-  if (savedHouseholdId) {
-    const membershipSnapshot = await getDoc(doc(db, 'households', savedHouseholdId, 'members', user.uid))
-    if (membershipSnapshot.exists() || await restoreOwnerMembership(user, savedHouseholdId)) return savedHouseholdId
-  }
-
   const email = normalizeEmail(user.email || '')
+
+  // Always check a direct invitation before returning the user's existing
+  // workspace. A newly-created account may already own an empty default home
+  // by the time the family owner sends the invitation.
   if (email) {
     const inviteRef = doc(db, 'householdInvites', email)
     const inviteSnapshot = await getDoc(inviteRef)
     if (inviteSnapshot.exists()) {
       const invite = inviteSnapshot.data()
       const householdId = String(invite.householdId)
-      await setDoc(doc(db, 'households', householdId, 'members', user.uid), {
-        userId: user.uid,
-        displayName: getUserName(user),
-        email,
-        role: 'member',
-        status: 'active',
-        permissions: invite.permissions || defaultMemberPermissions,
-        joinedAt: serverTimestamp(),
-      })
+      const membershipRef = doc(db, 'households', householdId, 'members', user.uid)
+      let joinedNow = false
+      try {
+        await setDoc(membershipRef, {
+          userId: user.uid,
+          displayName: getUserName(user),
+          email,
+          role: 'member',
+          status: 'active',
+          permissions: invite.permissions || defaultMemberPermissions,
+          joinedAt: serverTimestamp(),
+        })
+        joinedNow = true
+      } catch (cause) {
+        // An invited user cannot read the members collection before joining.
+        // If a stale invitation exists for an already-active member, the
+        // create becomes an update and is correctly rejected; verify that
+        // membership before continuing.
+        const existingMembership = await getDoc(membershipRef)
+        if (!existingMembership.exists()) throw cause
+      }
       await setDoc(profileRef, {
         displayName: getUserName(user),
         email,
         householdId,
-        createdAt: profileSnapshot.exists() ? profileSnapshot.data().createdAt : serverTimestamp(),
+        createdAt: profileSnapshot.exists() && profileSnapshot.data().createdAt
+          ? profileSnapshot.data().createdAt
+          : serverTimestamp(),
       }, { merge: true })
       await deleteDoc(inviteRef)
-      await insertActivity(householdId, user, 'انضم إلى البيت', email)
+      if (joinedNow) await insertActivity(householdId, user, 'انضم إلى البيت', email)
       return householdId
     }
+  }
+
+  if (savedHouseholdId) {
+    const membershipSnapshot = await getDoc(doc(db, 'households', savedHouseholdId, 'members', user.uid))
+    if (membershipSnapshot.exists() || await restoreOwnerMembership(user, savedHouseholdId)) return savedHouseholdId
   }
 
   const householdRef = doc(collection(db, 'households'))
@@ -349,9 +378,11 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
   const permissions = (isOwner ? ownerPermissions : membership.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>
   const canViewMarket = permissions.market === 'view' || permissions.market === 'edit'
   const canViewWishes = permissions.wishes === 'view' || permissions.wishes === 'edit'
-  const [marketSnapshot, wishesSnapshot] = await Promise.all([
+  const canViewChildren = permissions.noor === 'view' || permissions.noor === 'edit'
+  const [marketSnapshot, wishesSnapshot, childNeedsSnapshot] = await Promise.all([
     canViewMarket ? getDocs(query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey))) : null,
     canViewWishes ? getDocs(query(collection(db, 'households', householdId, 'wishes'), orderBy('createdAt', 'asc'))) : null,
+    canViewChildren ? getDocs(query(collection(db, 'households', householdId, 'childrenNeeds'), orderBy('createdAt', 'asc'))) : null,
   ])
 
   const marketDocuments = marketSnapshot?.docs ?? []
@@ -391,8 +422,21 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
     marketBudget: marketBudgetData && Number(marketBudgetData.budget) > 0 ? {
       monthKey: marketMonthKey,
       amount: Number(marketBudgetData.budget),
+      updatedByName: String(marketBudgetData.updatedByName || marketBudgetData.addedByName || 'رب الأسرة'),
+      updatedAtLabel: formatActivityTime(marketBudgetData.updatedAt || marketBudgetData.createdAt),
     } : null,
     marketExpenses,
+    childNeeds: (childNeedsSnapshot?.docs ?? []).map((snapshot) => {
+      const need = snapshot.data()
+      return {
+        id: snapshot.id,
+        title: String(need.title || ''),
+        childName: String(need.childName || 'الأبناء'),
+        estimatedCost: Math.max(0, Number(need.estimatedCost || 0)),
+        completed: Boolean(need.completed),
+        addedByName: String(need.addedByName || 'عضو رُشد'),
+      }
+    }),
     wishes: (wishesSnapshot?.docs ?? []).map((snapshot) => {
       const wish = snapshot.data()
       return {
@@ -483,6 +527,42 @@ export const addSharedWish = async (
   await insertActivity(householdId, user, 'أضاف أمنية مشتركة', input.title)
 }
 
+export const addSharedChildNeed = async (
+  householdId: string,
+  user: User,
+  input: { title: string; childName: string; estimatedCost: number },
+) => {
+  const title = input.title.trim()
+  const childName = input.childName.trim() || 'الأبناء'
+  const estimatedCost = Math.max(0, Math.round(input.estimatedCost * 100) / 100)
+  await addDoc(collection(db, 'households', householdId, 'childrenNeeds'), {
+    title,
+    childName,
+    estimatedCost,
+    completed: false,
+    addedBy: user.uid,
+    addedByName: getUserName(user),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  await insertActivity(householdId, user, 'أضاف احتياجًا للأبناء', `${childName} · ${title}`)
+}
+
+export const setSharedChildNeedCompleted = async (
+  householdId: string,
+  user: User,
+  needId: string,
+  completed: boolean,
+) => {
+  await updateDoc(doc(db, 'households', householdId, 'childrenNeeds', needId), {
+    completed,
+    updatedBy: user.uid,
+    updatedByName: getUserName(user),
+    updatedAt: serverTimestamp(),
+  })
+  await insertActivity(householdId, user, completed ? 'أكمل احتياجًا للأبناء' : 'أعاد احتياجًا للأبناء', needId)
+}
+
 export const subscribeToSharedData = (
   householdId: string,
   permissions: Record<SharedModule, AccessLevel>,
@@ -500,6 +580,9 @@ export const subscribeToSharedData = (
   }
   if (permissions.wishes !== 'none') {
     unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'wishes'), onChange, onError))
+  }
+  if (permissions.noor !== 'none') {
+    unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'childrenNeeds'), onChange, onError))
   }
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
 }

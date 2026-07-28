@@ -43,11 +43,14 @@ const ownerEmail = `rushd-smoke-owner-${runId}@example.com`
 const memberEmail = `rushd-smoke-member-${runId}@example.com`
 const password = `Rushd-${runId}-A9!`
 const householdId = `smoke-${runId}`
+const memberDefaultHouseholdId = `smoke-member-default-${runId}`
 const marketBudgetId = `market-budget-${runId}`
 const marketExpenseId = `market-expense-${runId}`
 const memberMarketExpenseId = `member-market-expense-${runId}`
 const viewOnlyExpenseId = `view-only-expense-${runId}`
 const wishId = `wish-${runId}`
+const childNeedId = `child-need-${runId}`
+const memberChildNeedId = `member-child-need-${runId}`
 const monthKey = '2099-01'
 const nextMonthKey = '2099-02'
 const transactionId = `transaction-${runId}`
@@ -80,6 +83,7 @@ let ownerUser = null
 let memberUser = null
 let ownerUid = ''
 let memberUid = ''
+let liveStep = 'تهيئة الاختبار'
 
 const safeDeleteDoc = async (reference) => {
   try {
@@ -109,6 +113,7 @@ const expectPermissionDenied = async (operation, message) => {
 }
 
 try {
+  liveStep = 'إنشاء حسابي المالك والعضو'
   const ownerCredential = await createUserWithEmailAndPassword(ownerAuth, ownerEmail, password)
   ownerUser = ownerCredential.user
   ownerUid = ownerUser.uid
@@ -117,6 +122,7 @@ try {
   memberUser = memberCredential.user
   memberUid = memberUser.uid
 
+  liveStep = 'إنشاء ملفات المستخدمين والبيت المؤقت للعضو'
   await setDoc(doc(ownerDb, 'users', ownerUid), {
     displayName: 'Rushd Smoke Owner',
     email: ownerEmail,
@@ -125,9 +131,25 @@ try {
   await setDoc(doc(memberDb, 'users', memberUid), {
     displayName: 'Rushd Smoke Member',
     email: memberEmail,
+    householdId: memberDefaultHouseholdId,
     createdAt: serverTimestamp(),
   })
+  await setDoc(doc(memberDb, 'households', memberDefaultHouseholdId), {
+    name: 'Temporary member home',
+    ownerId: memberUid,
+    createdAt: serverTimestamp(),
+  })
+  await setDoc(doc(memberDb, 'households', memberDefaultHouseholdId, 'members', memberUid), {
+    userId: memberUid,
+    displayName: 'Member',
+    email: memberEmail,
+    role: 'owner',
+    status: 'active',
+    permissions: { market: 'edit', wishes: 'edit', noor: 'edit' },
+    joinedAt: serverTimestamp(),
+  })
 
+  liveStep = 'التحقق من الدعوة وإنشاء بيت المالك'
   const missingInviteSnapshot = await getDoc(doc(ownerDb, 'householdInvites', ownerEmail))
   assert.equal(
     missingInviteSnapshot.exists(),
@@ -150,7 +172,8 @@ try {
     joinedAt: serverTimestamp(),
   })
 
-  const memberPermissions = { market: 'edit', wishes: 'view', noor: 'none' }
+  liveStep = 'دعوة حساب موجود ونقله إلى بيت المالك'
+  const memberPermissions = { market: 'edit', wishes: 'view', noor: 'edit' }
   await setDoc(doc(ownerDb, 'householdInvites', memberEmail), {
     email: memberEmail,
     householdId,
@@ -168,8 +191,15 @@ try {
     permissions: memberPermissions,
     joinedAt: serverTimestamp(),
   })
+  await updateDoc(doc(memberDb, 'users', memberUid), { householdId })
   await deleteDoc(doc(memberDb, 'householdInvites', memberEmail))
+  assert.equal(
+    (await getDoc(doc(memberDb, 'users', memberUid))).data()?.householdId,
+    householdId,
+    'An existing account could not switch from its default home to the invited household.',
+  )
 
+  liveStep = 'إنشاء بيانات البيت المشتركة'
   await setDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketBudgetId), {
     kind: 'budget',
     monthKey,
@@ -202,7 +232,18 @@ try {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
+  await setDoc(doc(ownerDb, 'households', householdId, 'childrenNeeds', childNeedId), {
+    title: 'Live smoke school shoes',
+    childName: 'Noor',
+    estimatedCost: 180,
+    completed: false,
+    addedBy: ownerUid,
+    addedByName: 'Owner',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
 
+  liveStep = 'إنشاء بيانات المالك الخاصة'
   try {
     await setDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey), {
       salary: 12000,
@@ -279,6 +320,7 @@ try {
     createdAt: serverTimestamp(),
   })
 
+  liveStep = 'قراءة العضو لبيانات البيت وتعديل احتياجات الأبناء'
   const householdSnapshot = await getDoc(doc(memberDb, 'households', householdId))
   assert.equal(householdSnapshot.exists(), true, 'Invited member could not read the household.')
 
@@ -288,7 +330,26 @@ try {
   assert.equal(marketExpenseSnapshot.data()?.amount, 125.75)
   const wishSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'wishes', wishId))
   assert.equal(wishSnapshot.data()?.title, 'Live smoke wish')
+  const childNeedReference = doc(memberDb, 'households', householdId, 'childrenNeeds', childNeedId)
+  assert.equal((await getDoc(childNeedReference)).data()?.childName, 'Noor')
+  await updateDoc(childNeedReference, {
+    completed: true,
+    updatedBy: memberUid,
+    updatedByName: 'Member',
+    updatedAt: serverTimestamp(),
+  })
+  await setDoc(doc(memberDb, 'households', householdId, 'childrenNeeds', memberChildNeedId), {
+    title: 'Live smoke diapers',
+    childName: 'Noor',
+    estimatedCost: 75,
+    completed: false,
+    addedBy: memberUid,
+    addedByName: 'Member',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
 
+  liveStep = 'منع العضو من تعديل ميزانية السوبرماركت'
   await expectPermissionDenied(
     () => updateDoc(doc(memberDb, 'households', householdId, 'marketItems', marketBudgetId), {
       budget: 1400.25,
@@ -299,6 +360,7 @@ try {
     'A household member could change the owner-controlled supermarket budget.',
   )
 
+  liveStep = 'مزامنة ميزانية السوبرماركت لحظيًا'
   let unsubscribeBudgetRealtime = () => undefined
   const budgetRealtimeUpdate = new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Realtime owner budget update timed out.')), 8000)
@@ -318,6 +380,7 @@ try {
   await budgetRealtimeUpdate
   unsubscribeBudgetRealtime()
 
+  liveStep = 'مزامنة مشتريات العضو لحظيًا'
   let unsubscribeExpenseRealtime = () => undefined
   const expenseRealtimeUpdate = new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Realtime member expense update timed out.')), 8000)
@@ -341,6 +404,7 @@ try {
   await expenseRealtimeUpdate
   unsubscribeExpenseRealtime()
 
+  liveStep = 'حماية بيانات المالك الخاصة من العضو'
   await expectPermissionDenied(
     () => updateDoc(doc(memberDb, 'households', householdId, 'wishes', wishId), { saved: 100 }),
     'A view-only member could edit a shared wish.',
@@ -378,8 +442,9 @@ try {
     'A household member could read the owner promotion scenario.',
   )
 
+  liveStep = 'تطبيق صلاحية المشاهدة فقط'
   await updateDoc(doc(ownerDb, 'households', householdId, 'members', memberUid), {
-    permissions: { market: 'view', wishes: 'view', noor: 'none' },
+    permissions: { market: 'view', wishes: 'view', noor: 'view' },
   })
   assert.equal(
     (await getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketBudgetId))).data()?.budget,
@@ -399,7 +464,12 @@ try {
     }),
     'A view-only member could still add a supermarket expense.',
   )
+  await expectPermissionDenied(
+    () => updateDoc(childNeedReference, { completed: false }),
+    'A view-only member could still edit a child need.',
+  )
 
+  liveStep = 'تطبيق صلاحية عدم الوصول'
   await updateDoc(doc(ownerDb, 'households', householdId, 'members', memberUid), {
     permissions: { market: 'none', wishes: 'view', noor: 'none' },
   })
@@ -411,7 +481,12 @@ try {
     () => getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketExpenseId)),
     'A member with no market access could still read supermarket expenses.',
   )
+  await expectPermissionDenied(
+    () => getDoc(childNeedReference),
+    'A member with no child-needs access could still read child needs.',
+  )
 
+  liveStep = 'إعادة تسجيل دخول المالك والتحقق من بقاء البيانات'
   await signOut(ownerAuth)
   ownerUser = (await signInWithEmailAndPassword(ownerAuth, ownerEmail, password)).user
 
@@ -432,7 +507,9 @@ try {
   await deleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
   assert.equal((await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))).exists(), false, 'Promotion scenario was not deleted.')
 
-  process.stdout.write('Firebase live smoke test passed: private Ratibi sync, automatic-import storage, owner-controlled supermarket budget, member deductions, household permissions, and realtime sync are working.\n')
+  process.stdout.write('Firebase live smoke test passed: existing-account invitations, private Ratibi sync, owner-controlled supermarket budget, child needs, household permissions, and realtime sync are working.\n')
+} catch (error) {
+  throw new Error(`Firebase live smoke failed at: ${liveStep}`, { cause: error })
 } finally {
   if (ownerUid) {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'monthlyPlans', monthKey, 'transactions', transactionId))
@@ -443,6 +520,8 @@ try {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'financialGoals', goalId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'wishes', wishId))
+    await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'childrenNeeds', memberChildNeedId))
+    await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'childrenNeeds', childNeedId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', viewOnlyExpenseId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', memberMarketExpenseId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', marketExpenseId))
@@ -453,7 +532,11 @@ try {
     await safeDeleteDoc(doc(ownerDb, 'households', householdId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid))
   }
-  if (memberUid) await safeDeleteDoc(doc(memberDb, 'users', memberUid))
+  if (memberUid) {
+    await safeDeleteDoc(doc(memberDb, 'households', memberDefaultHouseholdId, 'members', memberUid))
+    await safeDeleteDoc(doc(memberDb, 'households', memberDefaultHouseholdId))
+    await safeDeleteDoc(doc(memberDb, 'users', memberUid))
+  }
   await safeDeleteUser(memberUser)
   await safeDeleteUser(ownerUser)
   await Promise.allSettled([deleteApp(memberApp), deleteApp(ownerApp)])
