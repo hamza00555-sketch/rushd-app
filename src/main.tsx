@@ -10,6 +10,7 @@ import './promotion.css'
 import './wealth.css'
 import './launch.css'
 import './rebrand.css'
+import './visual-brand.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

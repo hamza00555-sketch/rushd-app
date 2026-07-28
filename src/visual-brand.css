@@ -1,0 +1,353 @@
+/* Generated brand scenes — light, readable, and optimized for the mobile RTL flow. */
+
+.generated-scene {
+  display: block;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Home hero */
+.financial-hero {
+  min-height: 286px;
+  isolation: isolate;
+}
+
+.financial-hero::before,
+.financial-hero::after {
+  display: none;
+}
+
+.hero-scene {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.hero-scene-shade {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(
+      270deg,
+      rgba(255, 253, 249, .98) 0%,
+      rgba(255, 253, 249, .94) 40%,
+      rgba(255, 253, 249, .68) 64%,
+      rgba(255, 253, 249, .08) 100%
+    );
+}
+
+.financial-hero .hero-copy,
+.financial-hero .health-score,
+.financial-hero .hero-action {
+  position: relative;
+  z-index: 2;
+}
+
+.financial-hero .hero-copy {
+  width: 64%;
+  max-width: 290px;
+  padding-left: 0;
+}
+
+.financial-hero .hero-copy > strong {
+  font-size: clamp(29px, 8.5vw, 38px);
+}
+
+.financial-hero .health-score {
+  position: absolute;
+  top: 22px;
+  left: 19px;
+  border-color: rgba(255, 255, 255, .82);
+  box-shadow:
+    0 14px 30px rgba(73, 58, 135, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .45);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+
+.financial-hero .hero-action {
+  position: absolute;
+  right: 21px;
+  bottom: 21px;
+  margin: 0;
+}
+
+.empty-financial-hero .hero-copy {
+  width: 66%;
+}
+
+.empty-financial-hero .hero-copy > strong {
+  max-width: 240px;
+}
+
+/* Ratibi connection */
+.ratibi-import-card {
+  isolation: isolate;
+  padding-top: 194px;
+}
+
+.ratibi-import-card::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: 104px;
+  right: 0;
+  left: 0;
+  height: 92px;
+  background: linear-gradient(180deg, rgba(255, 252, 248, 0), rgba(255, 252, 248, .98));
+  pointer-events: none;
+}
+
+.ratibi-scene {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  width: 100%;
+  height: 184px;
+  object-fit: cover;
+  object-position: center;
+}
+
+.ratibi-import-card > :not(.module-scene) {
+  position: relative;
+  z-index: 2;
+}
+
+.ratibi-import-card .ratibi-connection-state {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  border: 1px solid rgba(255, 255, 255, .85);
+  background: rgba(255, 252, 248, .88);
+  box-shadow: 0 8px 22px rgba(63, 53, 101, .1);
+  backdrop-filter: blur(14px);
+}
+
+.ratibi-import-card > span {
+  margin-top: 0;
+}
+
+/* Wishes */
+.wishes-intro {
+  position: relative;
+  min-height: 238px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  padding: 22px;
+}
+
+.wishes-scene {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.illustrated-scene-shade {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    linear-gradient(
+      270deg,
+      rgba(255, 252, 248, .98) 0%,
+      rgba(255, 252, 248, .94) 42%,
+      rgba(255, 252, 248, .56) 67%,
+      rgba(255, 252, 248, .06) 100%
+    );
+}
+
+.illustrated-intro-copy {
+  position: relative;
+  z-index: 2;
+  width: 61%;
+  max-width: 285px;
+}
+
+.illustrated-intro-copy > span {
+  color: var(--coral);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.illustrated-intro-copy h1 {
+  margin: 7px 0;
+  font-size: clamp(21px, 6.1vw, 27px);
+  line-height: 1.32;
+}
+
+.illustrated-intro-copy p {
+  max-width: 270px;
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+/* Supermarket budget */
+.market-budget-hero {
+  isolation: isolate;
+  padding-top: 202px;
+}
+
+.market-budget-hero::after {
+  display: none;
+}
+
+.market-scene {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+  object-position: center;
+}
+
+.market-scene-fade {
+  position: absolute;
+  z-index: 1;
+  top: 105px;
+  right: 0;
+  left: 0;
+  height: 90px;
+  background: linear-gradient(180deg, rgba(48, 42, 89, 0), rgba(48, 42, 89, 1));
+  pointer-events: none;
+}
+
+.market-budget-hero.is-over .market-scene-fade {
+  background: linear-gradient(180deg, rgba(80, 48, 75, 0), rgba(80, 48, 75, 1));
+}
+
+.market-budget-hero > :not(.market-scene):not(.market-scene-fade) {
+  position: relative;
+  z-index: 2;
+}
+
+.market-budget-hero h1 {
+  margin-top: 24px;
+}
+
+@media (max-width: 420px) {
+  .financial-hero {
+    min-height: 280px;
+    padding: 21px;
+  }
+
+  .financial-hero .hero-copy {
+    width: 66%;
+    padding-left: 0;
+  }
+
+  .financial-hero .hero-copy > strong {
+    font-size: clamp(27px, 8vw, 33px);
+  }
+
+  .financial-hero .hero-copy p {
+    font-size: 10px;
+    line-height: 1.65;
+  }
+
+  .financial-hero .health-score {
+    top: 19px;
+    left: 16px;
+  }
+
+  .financial-hero .hero-action {
+    right: 19px;
+    bottom: 19px;
+  }
+
+  .ratibi-import-card {
+    padding-top: 186px;
+  }
+
+  .ratibi-scene {
+    height: 176px;
+  }
+
+  .wishes-intro {
+    min-height: 230px;
+    padding: 19px;
+  }
+
+  .illustrated-intro-copy {
+    width: 64%;
+  }
+
+  .market-budget-hero {
+    padding: 194px 21px 21px;
+  }
+
+  .market-scene {
+    height: 182px;
+  }
+}
+
+@media (max-width: 360px) {
+  .financial-hero .hero-copy,
+  .empty-financial-hero .hero-copy {
+    width: 68%;
+  }
+
+  .financial-hero .health-score {
+    width: 72px;
+    height: 72px;
+  }
+
+  .financial-hero .hero-copy > strong {
+    font-size: 26px;
+  }
+
+  .wishes-intro {
+    min-height: 224px;
+  }
+
+  .illustrated-intro-copy {
+    width: 66%;
+  }
+
+  .illustrated-intro-copy h1 {
+    font-size: 20px;
+  }
+
+  .market-budget-hero {
+    padding: 186px 19px 19px;
+  }
+
+  .market-scene {
+    height: 174px;
+  }
+}
+
+@media (prefers-reduced-data: reduce) {
+  .hero-scene,
+  .module-scene {
+    display: none;
+  }
+
+  .hero-scene-shade,
+  .illustrated-scene-shade,
+  .market-scene-fade {
+    display: none;
+  }
+
+  .ratibi-import-card,
+  .market-budget-hero {
+    padding-top: 23px;
+  }
+}

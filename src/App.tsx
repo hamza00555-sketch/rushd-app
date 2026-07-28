@@ -103,6 +103,17 @@ function HomeView({
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
       <section className="financial-hero">
+        <img
+          className="generated-scene hero-scene"
+          src="/brand/rushd-dashboard-hero.webp"
+          alt=""
+          width="1200"
+          height="800"
+          loading="eager"
+          decoding="async"
+          draggable="false"
+        />
+        <span className="hero-scene-shade" aria-hidden="true" />
         <div className="hero-copy">
           <span>المتبقي من راتبك</span>
           <strong>{formatSar(snapshot.remaining)} <small>ريال</small></strong>
@@ -157,6 +168,17 @@ function EmptyHomeView({ onOpenMonth }: { onOpenMonth: () => void }) {
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
       <section className="financial-hero empty-financial-hero">
+        <img
+          className="generated-scene hero-scene"
+          src="/brand/rushd-ratibi-connect.webp"
+          alt=""
+          width="1200"
+          height="800"
+          loading="eager"
+          decoding="async"
+          draggable="false"
+        />
+        <span className="hero-scene-shade" aria-hidden="true" />
         <div className="hero-copy">
           <span>رُشد + راتبي</span>
           <strong>بياناتك لسه ما وصلت.</strong>
@@ -240,6 +262,16 @@ function MonthView({
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className="ratibi-import-card">
+        <img
+          className="generated-scene module-scene ratibi-scene"
+          src="/brand/rushd-ratibi-connect.webp"
+          alt=""
+          width="1200"
+          height="800"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+        />
         <div className="ratibi-connection-state">
           <span><Icon name={connected ? 'check' : 'spark'} size={16} /></span>
           <b>{connectionTitle}</b>
@@ -395,7 +427,24 @@ function WishesView({
 
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-      <section className="goal-intro wishes-intro"><span>أماني رُشد</span><h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1><p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p></section>
+      <section className="goal-intro wishes-intro">
+        <img
+          className="generated-scene module-scene wishes-scene"
+          src="/brand/rushd-wishes-scene.webp"
+          alt=""
+          width="1200"
+          height="800"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+        />
+        <span className="illustrated-scene-shade" aria-hidden="true" />
+        <div className="illustrated-intro-copy">
+          <span>أماني رُشد</span>
+          <h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1>
+          <p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p>
+        </div>
+      </section>
       {monthlyBudget && (
         <section className="wish-monthly-budget">
           <div><span>ميزانية الأماني من راتبي</span><strong>{formatSar(Math.max(0, monthlyBudget.limit - monthlyBudget.spent))} ريال</strong><small>متبقي من {formatSar(monthlyBudget.limit)} ريال هذا الشهر</small></div>
@@ -521,6 +570,17 @@ function MarketView({
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className={`market-budget-hero ${remaining < 0 ? 'is-over' : ''}`}>
+        <img
+          className="generated-scene module-scene market-scene"
+          src="/brand/rushd-market-scene.webp"
+          alt=""
+          width="1200"
+          height="800"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+        />
+        <span className="market-scene-fade" aria-hidden="true" />
         <div className="market-month-row">
           <div><span>ميزانية السوبرماركت</span><small>{formatMonthLabel(monthKey)}</small></div>
           <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="شهر ميزانية السوبرماركت" />
