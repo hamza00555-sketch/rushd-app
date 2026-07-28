@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rushd-shell-v12'
+const CACHE_NAME = 'rushd-shell-v13'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
