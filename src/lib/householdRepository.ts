@@ -45,6 +45,13 @@ export type SharedWish = {
   owner: string
 }
 
+export type SharedWishesBudget = {
+  monthKey: string
+  amount: number
+  updatedByName: string
+  updatedAtLabel: string
+}
+
 export type SharedMarketBudget = {
   monthKey: string
   amount: number
@@ -74,6 +81,7 @@ export type SharedWorkspaceData = {
   householdId: string
   isOwner: boolean
   wishes: SharedWish[]
+  wishesBudget: SharedWishesBudget | null
   marketBudget: SharedMarketBudget | null
   marketExpenses: SharedMarketExpense[]
   childNeeds: SharedChildNeed[]
@@ -369,7 +377,11 @@ export const subscribeToHousehold = (householdId: string, onChange: () => void):
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
 }
 
-export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string): Promise<SharedWorkspaceData> => {
+export const loadSharedWorkspaceData = async (
+  user: User,
+  marketMonthKey: string,
+  wishesMonthKey: string,
+): Promise<SharedWorkspaceData> => {
   const householdId = await ensureHousehold(user)
   const membershipSnapshot = await getDoc(doc(db, 'households', householdId, 'members', user.uid))
   if (!membershipSnapshot.exists()) throw new Error('تعذر التحقق من صلاحيات مساحة العائلة.')
@@ -385,6 +397,12 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
     canViewChildren ? getDocs(query(collection(db, 'households', householdId, 'childrenNeeds'), orderBy('createdAt', 'asc'))) : null,
   ])
 
+  const wishesDocuments = wishesSnapshot?.docs ?? []
+  const wishesBudgetDocument = wishesDocuments.find((snapshot) => {
+    const data = snapshot.data()
+    return data.kind === 'budget' && data.monthKey === wishesMonthKey
+  })
+  const wishesBudgetData = wishesBudgetDocument?.data()
   const marketDocuments = marketSnapshot?.docs ?? []
   const marketBudgetDocument = marketDocuments.find((snapshot) => {
     const data = snapshot.data()
@@ -419,6 +437,12 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
     householdId,
     isOwner,
     permissions,
+    wishesBudget: wishesBudgetData && Number(wishesBudgetData.budget) > 0 ? {
+      monthKey: wishesMonthKey,
+      amount: Number(wishesBudgetData.budget),
+      updatedByName: String(wishesBudgetData.updatedByName || wishesBudgetData.ownerName || 'عضو رُشد'),
+      updatedAtLabel: formatActivityTime(wishesBudgetData.updatedAt),
+    } : null,
     marketBudget: marketBudgetData && Number(marketBudgetData.budget) > 0 ? {
       monthKey: marketMonthKey,
       amount: Number(marketBudgetData.budget),
@@ -437,7 +461,7 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
         addedByName: String(need.addedByName || 'عضو رُشد'),
       }
     }),
-    wishes: (wishesSnapshot?.docs ?? []).map((snapshot) => {
+    wishes: wishesDocuments.filter((snapshot) => snapshot.data().kind !== 'budget').map((snapshot) => {
       const wish = snapshot.data()
       return {
         id: snapshot.id,
@@ -450,6 +474,41 @@ export const loadSharedWorkspaceData = async (user: User, marketMonthKey: string
       }
     }),
   }
+}
+
+export const saveSharedWishesBudget = async (
+  householdId: string,
+  user: User,
+  monthKey: string,
+  budget: number,
+) => {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new Error('شهر ميزانية الأماني غير صالح.')
+  const reference = doc(db, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
+  const snapshot = await getDoc(reference)
+  const amount = Math.max(0.01, Math.round(budget * 100) / 100)
+  if (snapshot.exists()) {
+    await updateDoc(reference, {
+      kind: 'budget',
+      monthKey,
+      budget: amount,
+      updatedBy: user.uid,
+      updatedByName: getUserName(user),
+      updatedAt: serverTimestamp(),
+    })
+  } else {
+    await setDoc(reference, {
+      kind: 'budget',
+      monthKey,
+      budget: amount,
+      ownerId: user.uid,
+      ownerName: getUserName(user),
+      updatedBy: user.uid,
+      updatedByName: getUserName(user),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  }
+  await insertActivity(householdId, user, 'حدّد ميزانية الأماني', `${monthKey} · ${amount} ريال`)
 }
 
 export const saveSharedMarketBudget = async (

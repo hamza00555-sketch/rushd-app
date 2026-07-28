@@ -53,6 +53,7 @@ const childNeedId = `child-need-${runId}`
 const memberChildNeedId = `member-child-need-${runId}`
 const monthKey = '2099-01'
 const nextMonthKey = '2099-02'
+const wishBudgetId = `wishes-budget-${monthKey}`
 const transactionId = `transaction-${runId}`
 const accountId = `account-${runId}`
 const goalId = `goal-${runId}`
@@ -67,7 +68,7 @@ const ratibiSnapshot = {
   income: { salary: 12500, additional: [] },
   obligations: [{ id: 'rent', title: 'Rent', amount: 2000, paidAmount: 2000, dueDate: null, category: 'housing' }],
   goals: [{ id: 'emergency', title: 'Emergency', target: 10000, saved: 2500, monthlyAllocation: 500, contributedThisMonth: 500, deadline: null, category: 'safety' }],
-  budgets: [{ id: 'wishes', title: 'Wishes', limit: 500, spent: 100, kind: 'wishes' }],
+  budgets: [],
   accounts: [],
   transactions: [],
 }
@@ -232,6 +233,17 @@ try {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
+  await setDoc(doc(ownerDb, 'households', householdId, 'wishes', wishBudgetId), {
+    kind: 'budget',
+    monthKey,
+    budget: 600,
+    ownerId: ownerUid,
+    ownerName: 'Owner',
+    updatedBy: ownerUid,
+    updatedByName: 'Owner',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
   await setDoc(doc(ownerDb, 'households', householdId, 'childrenNeeds', childNeedId), {
     title: 'Live smoke school shoes',
     childName: 'Noor',
@@ -323,6 +335,23 @@ try {
   liveStep = 'قراءة العضو لبيانات البيت وتعديل احتياجات الأبناء'
   const householdSnapshot = await getDoc(doc(memberDb, 'households', householdId))
   assert.equal(householdSnapshot.exists(), true, 'Invited member could not read the household.')
+  const memberWishesBudgetReference = doc(memberDb, 'households', householdId, 'wishes', wishBudgetId)
+  assert.equal((await getDoc(memberWishesBudgetReference)).data()?.budget, 600, 'The member could not see the wishes budget set inside Rushd.')
+  await expectPermissionDenied(
+    () => updateDoc(memberWishesBudgetReference, { budget: 700 }),
+    'A view-only household member could change the wishes budget.',
+  )
+  await updateDoc(doc(ownerDb, 'households', householdId, 'wishes', wishBudgetId), {
+    budget: 700,
+    updatedBy: ownerUid,
+    updatedByName: 'Owner',
+    updatedAt: serverTimestamp(),
+  })
+  assert.equal(
+    (await getDoc(memberWishesBudgetReference)).data()?.budget,
+    700,
+    'The Rushd wishes-budget update did not reach the member.',
+  )
 
   const marketBudgetSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'marketItems', marketBudgetId))
   assert.equal(marketBudgetSnapshot.data()?.budget, 1500.5)
@@ -499,7 +528,7 @@ try {
   assert.equal(ownerPlanSnapshot.data()?.salary, 12000, 'Monthly plan did not persist.')
   assert.equal(nextMonthSnapshot.data()?.salary, 12500, 'Creating a new month damaged monthly history.')
   assert.equal(nextMonthSnapshot.data()?.source, 'ratibi', 'Ratibi import source was not persisted.')
-  assert.equal(nextMonthSnapshot.data()?.ratibiSnapshot?.budgets?.[0]?.kind, 'wishes', 'Ratibi wishes budget was not persisted.')
+  assert.equal(nextMonthSnapshot.data()?.ratibiSnapshot?.budgets?.length, 0, 'Rushd should not require a wishes budget from Ratibi.')
   assert.equal(ratibiSyncSnapshot.data()?.bundle?.schema, 'ratibi.rushd.finance', 'Ratibi sync bundle did not persist.')
   assert.equal(ownerTransactionSnapshot.data()?.amount, 125, 'Monthly transaction did not persist.')
   assert.equal(ownerGoalSnapshot.data()?.saved, 250, 'Goal contribution did not persist.')
@@ -507,7 +536,7 @@ try {
   await deleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
   assert.equal((await getDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))).exists(), false, 'Promotion scenario was not deleted.')
 
-  process.stdout.write('Firebase live smoke test passed: existing-account invitations, private Ratibi sync, owner-controlled supermarket budget, child needs, household permissions, and realtime sync are working.\n')
+  process.stdout.write('Firebase live smoke test passed: existing-account invitations, Rushd-managed wishes budget, private Ratibi sync, owner-controlled supermarket budget, child needs, household permissions, and realtime sync are working.\n')
 } catch (error) {
   throw new Error(`Firebase live smoke failed at: ${liveStep}`, { cause: error })
 } finally {
@@ -520,6 +549,7 @@ try {
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'financialGoals', goalId))
     await safeDeleteDoc(doc(ownerDb, 'users', ownerUid, 'promotionScenarios', scenarioId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'wishes', wishId))
+    await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'wishes', wishBudgetId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'childrenNeeds', memberChildNeedId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'childrenNeeds', childNeedId))
     await safeDeleteDoc(doc(ownerDb, 'households', householdId, 'marketItems', viewOnlyExpenseId))

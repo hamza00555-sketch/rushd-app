@@ -24,13 +24,46 @@
   flex-direction: column;
 }
 
+.wish-monthly-budget .wish-budget-month-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wish-budget-month-row > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wish-budget-month-row input {
+  width: 44px;
+  height: 42px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(91, 87, 214, .12);
+  border-radius: 14px;
+  padding: 6px;
+  color: var(--ink);
+  background: rgba(91, 87, 214, .06);
+  font: inherit;
+  font-size: 0;
+}
+
+.wish-budget-month-row input::-webkit-calendar-picker-indicator {
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  opacity: .75;
+}
+
 .wish-monthly-budget span {
   color: var(--coral);
   font-size: 10px;
   font-weight: 800;
 }
 
-.wish-monthly-budget strong {
+.wish-budget-value > strong {
   margin-top: 4px;
   font-size: 25px;
 }
@@ -43,6 +76,51 @@
 
 .wish-monthly-budget .goal-track {
   margin: 12px 0 8px;
+}
+
+.wish-monthly-budget .wish-budget-value,
+.wish-monthly-budget .wish-budget-empty {
+  margin-top: 16px;
+}
+
+.wish-budget-value strong {
+  direction: ltr;
+  text-align: right;
+}
+
+.wish-budget-value strong small {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.wish-budget-value p,
+.wish-budget-empty p {
+  margin-top: 5px;
+  line-height: 1.7;
+}
+
+.wish-budget-empty strong {
+  font-size: 13px;
+}
+
+.wish-edit-budget {
+  margin: 14px 0 0;
+}
+
+.wish-budget-form {
+  margin-top: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, .92), rgba(255, 244, 235, .82));
+}
+
+.wish-budget-form .shared-form-heading > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wish-budget-form .shared-form-heading small {
+  margin-top: 3px;
+  line-height: 1.6;
 }
 
 .wish-budget-link-note {

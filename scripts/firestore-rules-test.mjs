@@ -68,6 +68,14 @@ try {
       ownerId,
       saved: 0,
     })
+    await setDoc(doc(adminDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`), {
+      kind: 'budget',
+      monthKey,
+      budget: 500,
+      ownerId,
+      updatedBy: ownerId,
+      updatedByName: 'Owner',
+    })
     await setDoc(doc(adminDb, 'households', householdId, 'childrenNeeds', 'school-shoes'), {
       title: 'School shoes',
       childName: 'Noor',
@@ -194,6 +202,8 @@ try {
   const memberMarketBudgetReference = doc(memberDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
   const memberMarketExpenseReference = doc(memberDb, 'households', householdId, 'marketItems', 'expense-one')
   const ownerMarketBudgetReference = doc(ownerDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
+  const memberWishesBudgetReference = doc(memberDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
+  const ownerWishesBudgetReference = doc(ownerDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
   const memberWishReference = doc(memberDb, 'households', householdId, 'wishes', 'trip')
   const memberChildNeedReference = doc(memberDb, 'households', householdId, 'childrenNeeds', 'school-shoes')
   await assertSucceeds(getDoc(memberMarketBudgetReference))
@@ -227,6 +237,14 @@ try {
     amount: 85.25,
     addedBy: memberId,
   }))
+  const sharedWishesBudget = await assertSucceeds(getDoc(memberWishesBudgetReference))
+  assert.equal(sharedWishesBudget.data()?.budget, 500)
+  await assertFails(updateDoc(memberWishesBudgetReference, { budget: 700 }))
+  await assertSucceeds(updateDoc(ownerWishesBudgetReference, { budget: 700 }))
+  assert.equal(
+    (await assertSucceeds(getDoc(memberWishesBudgetReference))).data()?.budget,
+    700,
+  )
   await assertSucceeds(getDoc(memberWishReference))
   await assertFails(updateDoc(memberWishReference, { saved: 100 }))
   await assertSucceeds(getDoc(memberChildNeedReference))

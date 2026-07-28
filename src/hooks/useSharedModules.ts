@@ -6,6 +6,7 @@ import {
   addSharedWish,
   loadSharedWorkspaceData,
   saveSharedMarketBudget,
+  saveSharedWishesBudget,
   setSharedChildNeedCompleted,
   subscribeToMemberAccess,
   subscribeToSharedData,
@@ -13,6 +14,7 @@ import {
   type SharedMarketBudget,
   type SharedMarketExpense,
   type SharedWish,
+  type SharedWishesBudget,
   type SharedWorkspaceData,
 } from '../lib/householdRepository'
 import type { AccessLevel, SharedModule } from '../lib/household'
@@ -26,8 +28,9 @@ const noAccess: Record<SharedModule, AccessLevel> = {
   noor: 'none',
 }
 
-export function useSharedModules(user: User, marketMonthKey: string) {
+export function useSharedModules(user: User, marketMonthKey: string, wishesMonthKey: string) {
   const [wishes, setWishes] = useState<SharedWish[]>([])
+  const [wishesBudget, setWishesBudget] = useState<SharedWishesBudget | null>(null)
   const [marketBudget, setMarketBudget] = useState<SharedMarketBudget | null>(null)
   const [marketExpenses, setMarketExpenses] = useState<SharedMarketExpense[]>([])
   const [childNeeds, setChildNeeds] = useState<SharedChildNeed[]>([])
@@ -37,11 +40,13 @@ export function useSharedModules(user: User, marketMonthKey: string) {
   const [error, setError] = useState('')
   const householdIdRef = useRef<string | null>(null)
   const marketMonthKeyRef = useRef(marketMonthKey)
+  const wishesMonthKeyRef = useRef(wishesMonthKey)
   const isHouseholdOwnerRef = useRef(false)
   const sharedRealtimeRef = useRef<Unsubscribe | null>(null)
   const memberRealtimeRef = useRef<Unsubscribe | null>(null)
   const permissionsRef = useRef(noAccess)
   marketMonthKeyRef.current = marketMonthKey
+  wishesMonthKeyRef.current = wishesMonthKey
 
   const applyData = useCallback((data: SharedWorkspaceData) => {
     householdIdRef.current = data.householdId
@@ -50,6 +55,7 @@ export function useSharedModules(user: User, marketMonthKey: string) {
     setIsHouseholdOwner(data.isOwner)
     setPermissions(data.permissions)
     setWishes(data.wishes)
+    setWishesBudget(data.wishesBudget)
     setMarketBudget(data.marketBudget)
     setMarketExpenses(data.marketExpenses)
     setChildNeeds(data.childNeeds)
@@ -63,10 +69,13 @@ export function useSharedModules(user: User, marketMonthKey: string) {
   }, [])
 
   const refreshData = useCallback(async () => {
-    const data = await loadSharedWorkspaceData(user, marketMonthKey)
-    if (marketMonthKeyRef.current === marketMonthKey) applyData(data)
+    const data = await loadSharedWorkspaceData(user, marketMonthKey, wishesMonthKey)
+    if (
+      marketMonthKeyRef.current === marketMonthKey
+      && wishesMonthKeyRef.current === wishesMonthKey
+    ) applyData(data)
     return data
-  }, [applyData, marketMonthKey, user])
+  }, [applyData, marketMonthKey, user, wishesMonthKey])
 
   const connectSharedRealtime = useCallback((data: SharedWorkspaceData) => {
     sharedRealtimeRef.current?.()
@@ -80,6 +89,7 @@ export function useSharedModules(user: User, marketMonthKey: string) {
     setStatus('connecting')
     setError('')
     setWishes([])
+    setWishesBudget(null)
     setMarketBudget(null)
     setMarketExpenses([])
     setChildNeeds([])
@@ -114,6 +124,14 @@ export function useSharedModules(user: User, marketMonthKey: string) {
     await saveSharedMarketBudget(householdId, user, marketMonthKey, budget)
     await refreshData()
   }, [marketMonthKey, refreshData, user])
+
+  const saveWishesBudget = useCallback(async (budget: number) => {
+    const householdId = householdIdRef.current
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (permissionsRef.current.wishes !== 'edit') throw new Error('صلاحيتك في الأماني للعرض فقط.')
+    await saveSharedWishesBudget(householdId, user, wishesMonthKey, budget)
+    await refreshData()
+  }, [refreshData, user, wishesMonthKey])
 
   const addMarketExpense = useCallback(async (amount: number, title: string) => {
     const householdId = householdIdRef.current
@@ -150,6 +168,7 @@ export function useSharedModules(user: User, marketMonthKey: string) {
 
   return {
     wishes,
+    wishesBudget,
     marketBudget,
     marketExpenses,
     childNeeds,
@@ -158,6 +177,7 @@ export function useSharedModules(user: User, marketMonthKey: string) {
     status,
     error,
     saveMarketBudget,
+    saveWishesBudget,
     addMarketExpense,
     addWish,
     addChildNeed,

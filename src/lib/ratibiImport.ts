@@ -313,23 +313,23 @@ export const buildRatibiCategories = (bundle: RatibiFinanceBundleV1): BudgetCate
   }
 
   const usedIds = new Set(categories.map((category) => category.id))
-  bundle.budgets.forEach((budget, index) => {
-    let id = budget.kind === 'wishes'
-      ? 'wishes'
-      : budget.kind === 'supermarket'
+  bundle.budgets
+    .filter((budget) => budget.kind !== 'wishes')
+    .forEach((budget, index) => {
+      let id = budget.kind === 'supermarket'
         ? 'supermarket'
         : `ratibi-${budget.id}`
-    while (usedIds.has(id)) id = `${id}-${index + 1}`
-    usedIds.add(id)
-    categories.push({
-      id,
-      title: budget.title,
-      icon: budget.kind === 'wishes' ? '♡' : budget.kind === 'supermarket' ? '🛒' : '•',
-      limit: budget.limit,
-      spent: budget.spent,
-      tone: categoryTone(index),
+      while (usedIds.has(id)) id = `${id}-${index + 1}`
+      usedIds.add(id)
+      categories.push({
+        id,
+        title: budget.title,
+        icon: budget.kind === 'supermarket' ? '🛒' : '•',
+        limit: budget.limit,
+        spent: budget.spent,
+        tone: categoryTone(index),
+      })
     })
-  })
 
   if (categories.length === 0) {
     categories.push({
@@ -344,6 +344,3 @@ export const buildRatibiCategories = (bundle: RatibiFinanceBundleV1): BudgetCate
 
   return categories
 }
-
-export const getRatibiWishesBudget = (bundle: RatibiFinanceBundleV1 | null) =>
-  bundle?.budgets.find((budget) => budget.kind === 'wishes') ?? null

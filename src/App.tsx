@@ -17,12 +17,16 @@ import {
   type MonthlyPlan,
 } from './lib/monthlyPlanRepository'
 import type { AccessLevel } from './lib/household'
-import type { SharedChildNeed, SharedMarketBudget, SharedMarketExpense, SharedWish } from './lib/householdRepository'
+import type {
+  SharedChildNeed,
+  SharedMarketBudget,
+  SharedMarketExpense,
+  SharedWish,
+  SharedWishesBudget,
+} from './lib/householdRepository'
 import {
   getRatibiIncomeTotal,
-  getRatibiWishesBudget,
   parseRatibiBundle,
-  type RatibiBudget,
   type RatibiFinanceBundleV1,
 } from './lib/ratibiImport'
 
@@ -392,18 +396,24 @@ function MonthView({
 
 function WishesView({
   wishes,
-  monthlyBudget,
+  monthKey,
+  setMonthKey,
+  budget,
+  onSaveBudget,
+  canManageBudget,
   onAdd,
   access,
-  showRatibiBudget,
   syncStatus,
   syncError,
 }: {
   wishes: SharedWish[]
-  monthlyBudget: RatibiBudget | null
+  monthKey: string
+  setMonthKey: (monthKey: string) => void
+  budget: SharedWishesBudget | null
+  onSaveBudget: (amount: number) => Promise<void>
+  canManageBudget: boolean
   onAdd: (input: { title: string; icon: string; target: number; deadline: string }) => Promise<void>
   access: AccessLevel
-  showRatibiBudget: boolean
   syncStatus: SharedSyncStatus
   syncError: string
 }) {
@@ -414,6 +424,35 @@ function WishesView({
   const [deadline, setDeadline] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [budgetFormOpen, setBudgetFormOpen] = useState(canManageBudget && !budget)
+  const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.amount) : '')
+  const [budgetBusy, setBudgetBusy] = useState(false)
+  const [budgetError, setBudgetError] = useState('')
+
+  useEffect(() => {
+    setBudgetDraft(budget ? String(budget.amount) : '')
+    setBudgetFormOpen(canManageBudget && !budget)
+    setBudgetError('')
+  }, [budget?.amount, canManageBudget, monthKey])
+
+  const submitBudget = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const amount = parseCurrencyInput(budgetDraft)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setBudgetError('اكتب ميزانية أماني شهرية صحيحة.')
+      return
+    }
+    setBudgetBusy(true)
+    setBudgetError('')
+    try {
+      await onSaveBudget(amount)
+      setBudgetFormOpen(false)
+    } catch (cause: unknown) {
+      setBudgetError(cause instanceof Error ? cause.message : 'تعذر حفظ ميزانية الأماني.')
+    } finally {
+      setBudgetBusy(false)
+    }
+  }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -457,17 +496,47 @@ function WishesView({
           <p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p>
         </div>
       </section>
-      {showRatibiBudget && monthlyBudget && (
+      {access !== 'none' && (
         <section className="wish-monthly-budget">
-          <div><span>ميزانية الأماني من راتبي</span><strong>{formatSar(Math.max(0, monthlyBudget.limit - monthlyBudget.spent))} ريال</strong><small>متبقي من {formatSar(monthlyBudget.limit)} ريال هذا الشهر</small></div>
-          <ProgressBar value={getSpentPercentage(monthlyBudget.spent, monthlyBudget.limit)} />
-          <p>تتحدث تلقائيًا عند استيراد نسخة جديدة من تطبيق راتبي.</p>
+          <div className="wish-budget-month-row">
+            <div>
+              <span>ميزانية الأماني</span>
+              <small>{formatMonthLabel(monthKey)} · تُدار من رُشد</small>
+            </div>
+            <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="شهر ميزانية الأماني" />
+          </div>
+          {budget ? (
+            <div className="wish-budget-value">
+              <strong>{formatMarketSar(budget.amount)} <small>ريال</small></strong>
+              <p>{canManageBudget
+                ? `آخر تعديل بواسطة ${budget.updatedByName} · ${budget.updatedAtLabel}`
+                : `حددها ${budget.updatedByName} · وتتحدث عندك تلقائيًا`}</p>
+            </div>
+          ) : (
+            <div className="wish-budget-empty">
+              <strong>{canManageBudget ? 'حدّد ميزانية الأماني لهذا الشهر' : 'بانتظار تحديد الميزانية'}</strong>
+              <p>{canManageBudget
+                ? 'هذه الميزانية مستقلة عن تطبيق راتبي، وتقدر تعدّلها من هنا في أي وقت.'
+                : 'أول ما يحددها شخص عنده صلاحية تعديل الأماني ستظهر لك مباشرة.'}</p>
+            </div>
+          )}
+          {budget && canManageBudget && !budgetFormOpen && (
+            <button type="button" className="secondary-button wish-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الأماني</button>
+          )}
+          {canManageBudget && budgetFormOpen && (
+            <form className="shared-entry-form wish-budget-form" onSubmit={submitBudget}>
+              <div className="shared-form-heading">
+                <div><strong>{budget ? 'تعديل الميزانية' : 'ميزانية الأماني الشهرية'}</strong><small>هذا الإعداد من رُشد ولا يتأثر بمزامنة راتبي</small></div>
+                {budget && <button type="button" onClick={() => setBudgetFormOpen(false)} aria-label="إلغاء تعديل ميزانية الأماني">×</button>}
+              </div>
+              <label className="market-form-label"><span>الميزانية بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 500" aria-label="ميزانية الأماني الشهرية" /></label>
+              {budgetError && <div className="inline-form-error" role="alert">{budgetError}</div>}
+              <button type="submit" disabled={budgetBusy}>{budgetBusy ? 'جاري الحفظ…' : 'اعتماد ميزانية الأماني'}</button>
+            </form>
+          )}
         </section>
       )}
-      {showRatibiBudget && !monthlyBudget && (
-        <section className="wish-budget-link-note"><Icon name="spark" size={18} /><div><strong>ميزانية الأماني تأتي من راتبي</strong><p>أضفها هناك ضمن الميزانيات، ثم حدّث بيانات حساب الشهر في رُشد.</p></div></section>
-      )}
-      {!showRatibiBudget && access !== 'none' && (
+      {!canManageBudget && access !== 'none' && (
         <section className="wish-budget-link-note member-share-note"><Icon name="users" size={18} /><div><strong>ما تحتاج تربط حسابك براتبي</strong><p>هذه الأماني تأتيك من مساحة العائلة حسب الصلاحية التي حددها رب الأسرة.</p></div></section>
       )}
       {access === 'none' ? (
@@ -809,11 +878,12 @@ function MemberAccessEmptyView({ syncError }: { syncError: string }) {
 export default function App({ user, displayName, onLogout, onHouseholdRoleChange }: AppProps) {
   const [tab, setTab] = useState<Tab>('home')
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey())
+  const [wishesMonthKey, setWishesMonthKey] = useState(getCurrentMonthKey())
   const [marketMonthKey, setMarketMonthKey] = useState(getCurrentMonthKey())
   const [message, setMessage] = useState(tabMessages.home)
   const [counter, setCounter] = useState(0)
   const monthly = useMonthlyPlan(user, monthKey)
-  const shared = useSharedModules(user, marketMonthKey)
+  const shared = useSharedModules(user, marketMonthKey, wishesMonthKey)
   const plan = monthly.plan
   const memberMode = shared.status === 'synced' && !shared.isHouseholdOwner
   const memberTabs = useMemo<Tab[]>(() => {
@@ -827,6 +897,7 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
 
   const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' || tab === 'children' ? 'happy' : 'calm', [tab])
   const marketDataIsCurrent = shared.marketBudget?.monthKey === marketMonthKey
+  const wishesBudget = shared.wishesBudget?.monthKey === wishesMonthKey ? shared.wishesBudget : null
   const marketExpenses = marketDataIsCurrent ? shared.marketExpenses : []
   const marketBudget = marketDataIsCurrent ? shared.marketBudget : null
   const marketSpent = marketExpenses.reduce((total, expense) => total + expense.amount, 0)
@@ -865,6 +936,11 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
   const addWish = async (input: { title: string; icon: string; target: number; deadline: string }) => {
     await shared.addWish(input)
     setMessage('تمت إضافة الأمنية ومزامنتها مع البيت.')
+  }
+
+  const saveWishesBudget = async (amount: number) => {
+    await shared.saveWishesBudget(amount)
+    setMessage(`تم اعتماد ميزانية الأماني: ${formatMarketSar(amount)} ريال.`)
   }
 
   const addChildNeed = async (input: { title: string; childName: string; estimatedCost: number }) => {
@@ -952,7 +1028,19 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
             <MonthView key="month" plan={plan} onImport={importFromRatibi} saving={monthly.saving} ratibiSync={monthly.ratibiSync}/>
           )}
           {tab === 'wishes' && (
-            <WishesView key="wishes" wishes={shared.wishes} monthlyBudget={getRatibiWishesBudget(plan?.ratibi ?? null)} onAdd={addWish} access={shared.permissions.wishes} showRatibiBudget={!memberMode} syncStatus={shared.status} syncError={shared.error}/>
+            <WishesView
+              key="wishes"
+              wishes={shared.wishes}
+              monthKey={wishesMonthKey}
+              setMonthKey={setWishesMonthKey}
+              budget={wishesBudget}
+              onSaveBudget={saveWishesBudget}
+              canManageBudget={shared.permissions.wishes === 'edit'}
+              onAdd={addWish}
+              access={shared.permissions.wishes}
+              syncStatus={shared.status}
+              syncError={shared.error}
+            />
           )}
           {tab === 'children' && (
             <ChildrenNeedsView key="children" needs={shared.childNeeds} access={shared.permissions.noor} onAdd={addChildNeed} onToggle={toggleChildNeed} syncStatus={shared.status} syncError={shared.error}/>

@@ -90,6 +90,7 @@ type RatibiFinanceBundleV1 = {
     limit: number
     spent: number
     kind: 'living' | 'wishes' | 'supermarket' | 'flexible' | 'other'
+    // wishes مدعوم لاستقبال الحزم القديمة فقط، ويتجاهله رُشد.
   }>
   accounts: Array<{
     id: string
@@ -154,13 +155,6 @@ type RatibiFinanceBundleV1 = {
   ],
   "budgets": [
     {
-      "id": "wishes",
-      "title": "أماني رُشد",
-      "limit": 500,
-      "spent": 100,
-      "kind": "wishes"
-    },
-    {
       "id": "living",
       "title": "المصاريف اليومية",
       "limit": 2500,
@@ -195,7 +189,8 @@ type RatibiFinanceBundleV1 = {
 - `paidAmount` لا يتجاوز `amount`.
 - `saved` لا يتجاوز `target`.
 - الحقول غير الموجودة في «راتبي» ترسل بقيمة `null` أو قائمة فارغة؛ لا تُحذف المفاتيح الأساسية.
-- `budgets.kind = "wishes"` هو المصدر الرسمي لميزانية «أماني رُشد».
+- ميزانية «أماني رُشد» تُحدد وتحفظ من صفحة الأماني داخل رُشد، ولا تأتي من «راتبي».
+- `budgets.kind = "wishes"` مقبول مؤقتًا للتوافق مع الحزم القديمة، لكن رُشد يتجاهله ولا يعرضه ضمن حساب الشهر.
 - `budgets.kind = "supermarket"` يظهر في الملخص المالي الخاص فقط، ولا يغيّر ميزانية السوبرماركت العائلية تلقائيًا.
 - الحد الأقصى لكل قائمة 200 عنصر.
 - لا تُرسل كلمات المرور، البريد، Firebase tokens، PIN، API keys، أرقام البطاقات، أرقام الحسابات أو IBAN.

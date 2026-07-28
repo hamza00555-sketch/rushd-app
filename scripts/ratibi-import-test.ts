@@ -4,7 +4,6 @@ import {
   RatibiImportError,
   buildRatibiCategories,
   getRatibiIncomeTotal,
-  getRatibiWishesBudget,
   parseRatibiBundle,
 } from '../src/lib/ratibiImport'
 
@@ -57,12 +56,15 @@ const validBundle = {
 const parsed = parseRatibiBundle(JSON.stringify(validBundle))
 assert.equal(parsed.month, '2026-07')
 assert.equal(getRatibiIncomeTotal(parsed), 13000)
-assert.equal(getRatibiWishesBudget(parsed)?.limit, 500)
 assert.deepEqual(buildRatibiCategories(parsed).map((category) => category.id), [
   'commitments',
   'future',
-  'wishes',
 ])
+assert.equal(
+  buildRatibiCategories(parsed).some((category) => category.id === 'wishes'),
+  false,
+  'ميزانية الأماني يجب أن تُدار داخل رُشد ولا تُستورد من راتبي.',
+)
 
 assert.throws(
   () => parseRatibiBundle({ ...validBundle, schema: 'unknown.schema' }),

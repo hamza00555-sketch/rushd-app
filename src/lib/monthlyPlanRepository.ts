@@ -167,7 +167,9 @@ export const subscribeToMonthlyPlan = (
       }
       planRecord = {
         salary: Math.max(0, Number(data.salary || 0)),
-        categories: rawCategories.map((category) => normalizeCategory(category as Record<string, unknown>)),
+        categories: source === 'ratibi' && ratibi
+          ? buildRatibiCategories(ratibi)
+          : rawCategories.map((category) => normalizeCategory(category as Record<string, unknown>)),
         source,
         ratibi,
         sourceExportedAt: typeof data.sourceExportedAt === 'string'
@@ -293,12 +295,16 @@ export const loadMonthlyPlanOnce = async (userId: string, monthKey = getCurrentM
   const snapshot = await getDoc(monthPath(userId, monthKey))
   if (!snapshot.exists()) return null
   const data = snapshot.data()
+  const source = data.source === 'ratibi' ? 'ratibi' as const : 'manual' as const
+  const ratibi = source === 'ratibi' && data.ratibiSnapshot
+    ? parseRatibiBundle(data.ratibiSnapshot)
+    : null
   return {
     salary: Math.max(0, Number(data.salary || 0)),
-    categories: (Array.isArray(data.categories) ? data.categories : []).map((category) => normalizeCategory(category as Record<string, unknown>)),
-    source: data.source === 'ratibi' ? 'ratibi' as const : 'manual' as const,
-    ratibi: data.source === 'ratibi' && data.ratibiSnapshot
-      ? parseRatibiBundle(data.ratibiSnapshot)
-      : null,
+    categories: source === 'ratibi' && ratibi
+      ? buildRatibiCategories(ratibi)
+      : (Array.isArray(data.categories) ? data.categories : []).map((category) => normalizeCategory(category as Record<string, unknown>)),
+    source,
+    ratibi,
   }
 }
