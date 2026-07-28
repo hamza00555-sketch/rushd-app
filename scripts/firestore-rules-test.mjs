@@ -36,7 +36,11 @@ try {
     const adminDb = context.firestore()
     await setDoc(doc(adminDb, 'users', ownerId), { displayName: 'Owner', email: ownerEmail })
     await setDoc(doc(adminDb, 'users', memberId), { displayName: 'Member', email: memberEmail })
-    await setDoc(doc(adminDb, 'households', householdId), { name: 'Home', ownerId })
+    await setDoc(doc(adminDb, 'households', householdId), {
+      name: 'Home',
+      ownerId,
+      marketCycleStartDay: 1,
+    })
     await setDoc(doc(adminDb, 'households', householdId, 'members', ownerId), {
       userId: ownerId,
       email: ownerEmail,
@@ -198,6 +202,16 @@ try {
     permissions: acceptedPermissions,
   }))
   await assertSucceeds(deleteDoc(doc(memberDb, 'householdInvites', memberEmail)))
+
+  const ownerHouseholdReference = doc(ownerDb, 'households', householdId)
+  const memberHouseholdReference = doc(memberDb, 'households', householdId)
+  await assertSucceeds(getDoc(memberHouseholdReference))
+  await assertFails(updateDoc(memberHouseholdReference, { marketCycleStartDay: 27 }))
+  await assertSucceeds(updateDoc(ownerHouseholdReference, { marketCycleStartDay: 27 }))
+  assert.equal(
+    (await assertSucceeds(getDoc(memberHouseholdReference))).data()?.marketCycleStartDay,
+    27,
+  )
 
   const memberMarketBudgetReference = doc(memberDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
   const memberMarketExpenseReference = doc(memberDb, 'households', householdId, 'marketItems', 'expense-one')

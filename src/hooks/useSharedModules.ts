@@ -6,6 +6,7 @@ import {
   addSharedWish,
   loadSharedWorkspaceData,
   saveSharedMarketBudget,
+  saveSharedMarketCycleStartDay,
   saveSharedWishesBudget,
   setSharedChildNeedCompleted,
   subscribeToMemberAccess,
@@ -33,6 +34,7 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
   const [wishesBudget, setWishesBudget] = useState<SharedWishesBudget | null>(null)
   const [marketBudget, setMarketBudget] = useState<SharedMarketBudget | null>(null)
   const [marketExpenses, setMarketExpenses] = useState<SharedMarketExpense[]>([])
+  const [marketCycleStartDay, setMarketCycleStartDay] = useState(1)
   const [childNeeds, setChildNeeds] = useState<SharedChildNeed[]>([])
   const [isHouseholdOwner, setIsHouseholdOwner] = useState(false)
   const [permissions, setPermissions] = useState<Record<SharedModule, AccessLevel>>(noAccess)
@@ -58,6 +60,7 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     setWishesBudget(data.wishesBudget)
     setMarketBudget(data.marketBudget)
     setMarketExpenses(data.marketExpenses)
+    setMarketCycleStartDay(data.marketCycleStartDay)
     setChildNeeds(data.childNeeds)
     setStatus('synced')
     setError('')
@@ -125,6 +128,14 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     await refreshData()
   }, [marketMonthKey, refreshData, user])
 
+  const saveMarketCycleStartDay = useCallback(async (startDay: number) => {
+    const householdId = householdIdRef.current
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (!isHouseholdOwnerRef.current) throw new Error('رب الأسرة فقط يقدر يحدد بداية شهر السوبرماركت.')
+    await saveSharedMarketCycleStartDay(householdId, user, startDay)
+    await refreshData()
+  }, [refreshData, user])
+
   const saveWishesBudget = useCallback(async (budget: number) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
@@ -171,12 +182,14 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     wishesBudget,
     marketBudget,
     marketExpenses,
+    marketCycleStartDay,
     childNeeds,
     isHouseholdOwner,
     permissions,
     status,
     error,
     saveMarketBudget,
+    saveMarketCycleStartDay,
     saveWishesBudget,
     addMarketExpense,
     addWish,

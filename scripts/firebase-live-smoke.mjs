@@ -138,6 +138,7 @@ try {
   await setDoc(doc(memberDb, 'households', memberDefaultHouseholdId), {
     name: 'Temporary member home',
     ownerId: memberUid,
+    marketCycleStartDay: 1,
     createdAt: serverTimestamp(),
   })
   await setDoc(doc(memberDb, 'households', memberDefaultHouseholdId, 'members', memberUid), {
@@ -161,6 +162,7 @@ try {
   await setDoc(doc(ownerDb, 'households', householdId), {
     name: 'Rushd launch smoke household',
     ownerId: ownerUid,
+    marketCycleStartDay: 1,
     createdAt: serverTimestamp(),
   })
   await setDoc(doc(ownerDb, 'households', householdId, 'members', ownerUid), {
@@ -335,6 +337,19 @@ try {
   liveStep = 'قراءة العضو لبيانات البيت وتعديل احتياجات الأبناء'
   const householdSnapshot = await getDoc(doc(memberDb, 'households', householdId))
   assert.equal(householdSnapshot.exists(), true, 'Invited member could not read the household.')
+  await expectPermissionDenied(
+    () => updateDoc(doc(memberDb, 'households', householdId), { marketCycleStartDay: 27 }),
+    'A household member could change the supermarket cycle start day.',
+  )
+  await updateDoc(doc(ownerDb, 'households', householdId), {
+    marketCycleStartDay: 27,
+    updatedAt: serverTimestamp(),
+  })
+  assert.equal(
+    (await getDoc(doc(memberDb, 'households', householdId))).data()?.marketCycleStartDay,
+    27,
+    'The supermarket cycle start day did not reach the household member.',
+  )
   const memberWishesBudgetReference = doc(memberDb, 'households', householdId, 'wishes', wishBudgetId)
   assert.equal((await getDoc(memberWishesBudgetReference)).data()?.budget, 600, 'The member could not see the wishes budget set inside Rushd.')
   await expectPermissionDenied(

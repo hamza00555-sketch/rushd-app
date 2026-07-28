@@ -34,6 +34,7 @@ import {
 } from './household'
 import { auth, authPersistenceReady, db } from './firebase'
 import { ARABIC_GREGORIAN_LOCALE } from './locale'
+import { normalizeMarketCycleStartDay } from './marketCycle'
 
 export type SharedWish = {
   id: string
@@ -80,6 +81,7 @@ export type SharedChildNeed = {
 export type SharedWorkspaceData = {
   householdId: string
   isOwner: boolean
+  marketCycleStartDay: number
   wishes: SharedWish[]
   wishesBudget: SharedWishesBudget | null
   marketBudget: SharedMarketBudget | null
@@ -258,6 +260,7 @@ export const ensureHousehold = async (user: User): Promise<string> => {
   await setDoc(householdRef, {
     name: householdName,
     ownerId: user.uid,
+    marketCycleStartDay: 1,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -383,9 +386,14 @@ export const loadSharedWorkspaceData = async (
   wishesMonthKey: string,
 ): Promise<SharedWorkspaceData> => {
   const householdId = await ensureHousehold(user)
-  const membershipSnapshot = await getDoc(doc(db, 'households', householdId, 'members', user.uid))
+  const [membershipSnapshot, householdSnapshot] = await Promise.all([
+    getDoc(doc(db, 'households', householdId, 'members', user.uid)),
+    getDoc(doc(db, 'households', householdId)),
+  ])
   if (!membershipSnapshot.exists()) throw new Error('تعذر التحقق من صلاحيات مساحة العائلة.')
+  if (!householdSnapshot.exists()) throw new Error('تعذر تحميل إعدادات مساحة العائلة.')
   const membership = membershipSnapshot.data()
+  const household = householdSnapshot.data()
   const isOwner = membership.role === 'owner'
   const permissions = (isOwner ? ownerPermissions : membership.permissions || defaultMemberPermissions) as Record<SharedModule, AccessLevel>
   const canViewMarket = permissions.market === 'view' || permissions.market === 'edit'
@@ -436,6 +444,7 @@ export const loadSharedWorkspaceData = async (
   return {
     householdId,
     isOwner,
+    marketCycleStartDay: normalizeMarketCycleStartDay(household.marketCycleStartDay),
     permissions,
     wishesBudget: wishesBudgetData && Number(wishesBudgetData.budget) > 0 ? {
       monthKey: wishesMonthKey,
@@ -545,6 +554,20 @@ export const saveSharedMarketBudget = async (
   await insertActivity(householdId, user, 'حدّد ميزانية السوبرماركت', `${amount} ريال`)
 }
 
+export const saveSharedMarketCycleStartDay = async (
+  householdId: string,
+  user: User,
+  startDayInput: number,
+) => {
+  const startDay = normalizeMarketCycleStartDay(startDayInput)
+  if (startDay !== startDayInput) throw new Error('اختر يومًا من 1 إلى 28.')
+  await updateDoc(doc(db, 'households', householdId), {
+    marketCycleStartDay: startDay,
+    updatedAt: serverTimestamp(),
+  })
+  await insertActivity(householdId, user, 'عدّل بداية شهر السوبرماركت', `يوم ${startDay} من كل شهر`)
+}
+
 export const addSharedMarketExpense = async (
   householdId: string,
   user: User,
@@ -629,7 +652,9 @@ export const subscribeToSharedData = (
   onChange: () => void,
   onError?: (cause: unknown) => void,
 ): Unsubscribe => {
-  const unsubscribers: Unsubscribe[] = []
+  const unsubscribers: Unsubscribe[] = [
+    onSnapshot(doc(db, 'households', householdId), onChange, onError),
+  ]
   if (permissions.market !== 'none') {
     unsubscribers.push(onSnapshot(
       query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey)),

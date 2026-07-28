@@ -29,6 +29,12 @@ import {
   parseRatibiBundle,
   type RatibiFinanceBundleV1,
 } from './lib/ratibiImport'
+import {
+  getActiveMarketCycleKey,
+  getMarketCycleSummary,
+  MAX_MARKET_CYCLE_START_DAY,
+  MIN_MARKET_CYCLE_START_DAY,
+} from './lib/marketCycle'
 
 type Tab = 'home' | 'month' | 'wishes' | 'children' | 'market'
 
@@ -74,6 +80,13 @@ const parseCurrencyInput = (input: string) => {
 
 const formatMarketSar = (value: number) =>
   new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 2 }).format(value)
+
+const formatRemainingCycleDays = (days: number) => {
+  if (days === 1) return 'باقي يوم واحد'
+  if (days === 2) return 'باقي يومان'
+  if (days >= 3 && days <= 10) return `باقي ${formatMarketSar(days)} أيام`
+  return `باقي ${formatMarketSar(days)} يوم`
+}
 
 const syncMessage = (status: SharedSyncStatus, error: string) => {
   if (status === 'synced') return { title: 'متصل لحظيًا', body: 'أي تعديل يظهر لأعضاء البيت مباشرة.' }
@@ -691,6 +704,8 @@ function MarketView({
   expenses,
   onSaveBudget,
   onAddExpense,
+  cycleStartDay,
+  onSaveCycleStartDay,
   canManageBudget,
   access,
   syncStatus,
@@ -702,6 +717,8 @@ function MarketView({
   expenses: SharedMarketExpense[]
   onSaveBudget: (amount: number) => Promise<void>
   onAddExpense: (amount: number, title: string) => Promise<void>
+  cycleStartDay: number
+  onSaveCycleStartDay: (startDay: number) => Promise<void>
   canManageBudget: boolean
   access: AccessLevel
   syncStatus: SharedSyncStatus
@@ -712,12 +729,19 @@ function MarketView({
   const budgetAmount = budget?.amount ?? 0
   const remaining = budgetAmount - spent
   const progress = getSpentPercentage(spent, budgetAmount)
+  const cycle = useMemo(
+    () => getMarketCycleSummary(monthKey, cycleStartDay),
+    [cycleStartDay, monthKey],
+  )
   const [budgetFormOpen, setBudgetFormOpen] = useState(canManageBudget && !budget)
   const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.amount) : '')
+  const [cycleStartDayDraft, setCycleStartDayDraft] = useState(cycleStartDay)
   const [expenseAmount, setExpenseAmount] = useState('')
   const [expenseTitle, setExpenseTitle] = useState('')
   const [busy, setBusy] = useState(false)
+  const [cycleBusy, setCycleBusy] = useState(false)
   const [budgetError, setBudgetError] = useState('')
+  const [cycleError, setCycleError] = useState('')
   const [expenseError, setExpenseError] = useState('')
 
   useEffect(() => {
@@ -726,6 +750,11 @@ function MarketView({
     setBudgetError('')
     setExpenseError('')
   }, [budget?.amount, canManageBudget, monthKey])
+
+  useEffect(() => {
+    setCycleStartDayDraft(cycleStartDay)
+    setCycleError('')
+  }, [cycleStartDay])
 
   const submitBudget = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -766,6 +795,27 @@ function MarketView({
     }
   }
 
+  const submitCycleSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (
+      !Number.isInteger(cycleStartDayDraft)
+      || cycleStartDayDraft < MIN_MARKET_CYCLE_START_DAY
+      || cycleStartDayDraft > MAX_MARKET_CYCLE_START_DAY
+    ) {
+      setCycleError('اختر يومًا من 1 إلى 28.')
+      return
+    }
+    setCycleBusy(true)
+    setCycleError('')
+    try {
+      await onSaveCycleStartDay(cycleStartDayDraft)
+    } catch (cause: unknown) {
+      setCycleError(cause instanceof Error ? cause.message : 'تعذر حفظ بداية شهر السوبرماركت.')
+    } finally {
+      setCycleBusy(false)
+    }
+  }
+
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className={`market-budget-hero ${remaining < 0 ? 'is-over' : ''}`}>
@@ -781,9 +831,18 @@ function MarketView({
         />
         <span className="market-scene-fade" aria-hidden="true" />
         <div className="market-month-row">
-          <div><span>ميزانية السوبرماركت</span><small>{formatMonthLabel(monthKey)}</small></div>
-          <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="شهر ميزانية السوبرماركت" />
+          <div><span>ميزانية السوبرماركت</span><small>{cycle.label}</small></div>
+          <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="اختيار دورة السوبرماركت حسب شهر البداية" />
         </div>
+        {access !== 'none' && (
+          <div className={`market-cycle-countdown ${cycle.isCurrent ? '' : 'is-archive'}`}>
+            <div>
+              <span>{cycle.isCurrent ? 'المتبقي في الشهر' : 'الدورة المحددة'}</span>
+              <strong>{cycle.isCurrent && cycle.daysRemaining !== null ? formatRemainingCycleDays(cycle.daysRemaining) : 'دورة سابقة'}</strong>
+            </div>
+            <small>{cycle.isCurrent ? `تنتهي ${cycle.endLabel}` : cycle.label}</small>
+          </div>
+        )}
         {syncStatus === 'connecting' ? (
           <><h1>نراجع ميزانية الشهر…</h1><p>لحظة ونجيب آخر المشتريات المسجلة في البيت.</p></>
         ) : access === 'none' ? (
@@ -794,11 +853,11 @@ function MarketView({
             : <><h1>بانتظار ميزانية رب الأسرة</h1><p>أول ما يحددها ستظهر لك هنا تلقائيًا، وبعدها تقدرين تسجلين المشتريات.</p></>
         ) : (
           <>
-            <span className="market-balance-label">{remaining >= 0 ? 'المتبقي هذا الشهر' : 'تجاوزتم الميزانية بـ'}</span>
+            <span className="market-balance-label">{remaining >= 0 ? 'المتبقي في هذه الدورة' : 'تجاوزتم الميزانية بـ'}</span>
             <strong className="market-balance">{formatMarketSar(Math.abs(remaining))} <small>ريال</small></strong>
             <div className="market-budget-progress" aria-label={`استخدمتم ${progress}% من ميزانية السوبرماركت`}><motion.i initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: .65 }} /></div>
             <div className="market-budget-stats">
-              <div><span>ميزانية الشهر</span><b>{formatMarketSar(budgetAmount)} ريال</b></div>
+              <div><span>ميزانية الدورة</span><b>{formatMarketSar(budgetAmount)} ريال</b></div>
               <div><span>المصروف حتى الآن</span><b>{formatMarketSar(spent)} ريال</b></div>
             </div>
             <small className="market-budget-source">
@@ -812,20 +871,51 @@ function MarketView({
 
       {access !== 'none' && syncStatus !== 'connecting' && (
         <>
+          <section className="section-block market-cycle-settings">
+            <div className="section-title">
+              <div><span>إعداد الشهر</span><h2>متى تبدأ ميزانية السوبرماركت؟</h2></div>
+              <i aria-hidden="true"><Icon name="month" size={20} /></i>
+            </div>
+            <p>الدورة الحالية تبدأ يوم {formatMarketSar(cycleStartDay)} وتنتهي في اليوم السابق من الشهر التالي.</p>
+            {canManageBudget ? (
+              <form onSubmit={submitCycleSettings}>
+                <label className="market-form-label">
+                  <span>يوم بداية الشهر</span>
+                  <select
+                    value={cycleStartDayDraft}
+                    onChange={(event) => setCycleStartDayDraft(Number(event.target.value))}
+                    aria-label="يوم بداية شهر السوبرماركت"
+                  >
+                    {Array.from(
+                      { length: MAX_MARKET_CYCLE_START_DAY },
+                      (_, index) => index + MIN_MARKET_CYCLE_START_DAY,
+                    ).map((day) => <option value={day} key={day}>يوم {formatMarketSar(day)}</option>)}
+                  </select>
+                </label>
+                <button type="submit" disabled={cycleBusy || cycleStartDayDraft === cycleStartDay}>
+                  {cycleBusy ? 'جاري الحفظ…' : 'حفظ بداية الشهر'}
+                </button>
+              </form>
+            ) : (
+              <div className="market-cycle-owner-note">حددها رب الأسرة، وأي تغيير سيظهر هنا تلقائيًا.</div>
+            )}
+            {cycleError && <div className="inline-form-error" role="alert">{cycleError}</div>}
+          </section>
+
           {canManageBudget && budgetFormOpen && (
             <form className="shared-entry-form market-budget-form" onSubmit={submitBudget}>
               <div className="shared-form-heading">
-                <div><strong>{budget ? 'تعديل ميزانية الشهر' : 'ميزانية الشهر'}</strong><small>المبلغ المتاح للسوبرماركت فقط</small></div>
+                <div><strong>{budget ? 'تعديل ميزانية الدورة' : 'ميزانية الدورة'}</strong><small>المبلغ المتاح للسوبرماركت فقط</small></div>
                 {budget && <button type="button" onClick={() => setBudgetFormOpen(false)} aria-label="إلغاء تعديل الميزانية">×</button>}
               </div>
               <label className="market-form-label"><span>الميزانية بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 1500" aria-label="ميزانية السوبرماركت الشهرية" /></label>
               {budgetError && <div className="inline-form-error" role="alert">{budgetError}</div>}
-              <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : budget ? 'حفظ الميزانية الجديدة' : 'اعتماد ميزانية الشهر'}</button>
+              <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : budget ? 'حفظ الميزانية الجديدة' : 'اعتماد ميزانية الدورة'}</button>
             </form>
           )}
 
           {budget && canManageBudget && !budgetFormOpen && (
-            <button type="button" className="secondary-button market-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الشهر</button>
+            <button type="button" className="secondary-button market-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الدورة</button>
           )}
 
           {budget && access === 'edit' && (
@@ -916,6 +1006,10 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
   }, [onHouseholdRoleChange, shared.isHouseholdOwner, shared.status])
 
   useEffect(() => {
+    setMarketMonthKey(getActiveMarketCycleKey(shared.marketCycleStartDay))
+  }, [shared.marketCycleStartDay])
+
+  useEffect(() => {
     if (!memberMode || memberTabs.length === 0 || memberTabs.includes(tab)) return
     const next = memberTabs[0]
     setTab(next)
@@ -956,6 +1050,12 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
   const saveMarketBudget = async (amount: number) => {
     await shared.saveMarketBudget(amount)
     setMessage(`تم اعتماد ميزانية السوبرماركت: ${formatMarketSar(amount)} ريال.`)
+  }
+
+  const saveMarketCycleStartDay = async (startDay: number) => {
+    await shared.saveMarketCycleStartDay(startDay)
+    setMarketMonthKey(getActiveMarketCycleKey(startDay))
+    setMessage(`صار شهر السوبرماركت يبدأ يوم ${startDay} من كل شهر.`)
   }
 
   const addMarketExpense = async (amount: number, title: string) => {
@@ -1054,6 +1154,8 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
               expenses={marketExpenses}
               onSaveBudget={saveMarketBudget}
               onAddExpense={addMarketExpense}
+              cycleStartDay={shared.marketCycleStartDay}
+              onSaveCycleStartDay={saveMarketCycleStartDay}
               canManageBudget={shared.isHouseholdOwner}
               access={shared.permissions.market}
               syncStatus={shared.status}
