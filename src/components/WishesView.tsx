@@ -13,6 +13,7 @@ import { formatMonthLabel } from '../lib/monthlyPlanRepository'
 import {
   getWishCompletionForecast,
   getWishFundingCapacityError,
+  getWishFundingLevel,
   WISH_FUNDING_LEVELS,
   type WishFundingLevel,
 } from '../lib/wishesFund'
@@ -417,21 +418,34 @@ export function WishesView({
               </div>
 
               {(() => {
+                const previewFundingLevel = canManageBudget
+                  ? fundingDraft
+                  : selectedWish.fundingLevel
+                const previewActiveShareTotal = wishes
+                  .filter((wish) => wish.saved < wish.target)
+                  .reduce((total, wish) => {
+                    const level = wish.id === selectedWish.id
+                      ? previewFundingLevel
+                      : wish.fundingLevel
+                    return total + getWishFundingLevel(level).share
+                  }, 0)
                 const forecast = getWishCompletionForecast({
                   target: selectedWish.target,
                   saved: selectedWish.saved,
                   monthlyFundAmount: budget?.amount ?? 0,
-                  fundingLevel: selectedWish.fundingLevel,
-                  activeShareTotal,
+                  fundingLevel: previewFundingLevel,
+                  activeShareTotal: previewActiveShareTotal,
                   monthKey,
                 })
+                const isUnsavedPreview = canManageBudget
+                  && previewFundingLevel !== selectedWish.fundingLevel
                 return (
-                  <div className="wish-forecast-card">
+                  <div className="wish-forecast-card" aria-live="polite">
                     <span><Icon name="clock" size={19} /></span>
                     <div>
-                      <small>موعد الوصول المتوقع</small>
-                      <strong>{selectedWish.fundingLevel === 'paused' ? 'الحساب متوقف مؤقتًا' : forecast?.label ?? 'يظهر بعد إضافة دفعة شهرية'}</strong>
-                      <p>{selectedWish.fundingLevel === 'paused'
+                      <small>موعد الوصول المتوقع{isUnsavedPreview ? ' · معاينة فورية' : ''}</small>
+                      <strong>{previewFundingLevel === 'paused' ? 'الحساب متوقف مؤقتًا' : forecast?.label ?? 'يظهر بعد إضافة دفعة شهرية'}</strong>
+                      <p>{previewFundingLevel === 'paused'
                         ? 'الرصيد السابق محفوظ، ولن يصلها مبلغ جديد وهي معلّقة.'
                         : forecast && forecast.monthlyShare > 0
                           ? `على وتيرة ${formatMarketSar(forecast.monthlyShare)} ريال كل شهر`
