@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rushd-shell-v14'
+const CACHE_NAME = 'rushd-shell-v15'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -6,7 +6,7 @@ const APP_SHELL = [
   '/icons/icon-512.png',
   '/icons/icon-512-maskable.png',
   '/icons/apple-touch-icon.png',
-  '/brand/rushd-mascot-v3.png',
+  '/brand/rushd-mascot-v3.webp',
   '/brand/rushd-dashboard-hero.webp',
   '/brand/rushd-ratibi-connect.webp',
   '/brand/rushd-wishes-scene.webp',

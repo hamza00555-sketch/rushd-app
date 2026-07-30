@@ -231,7 +231,9 @@ try {
     target: 1000,
     saved: 0,
     deadline: '2099',
-    needPercent: 5,
+    fundingLevel: 'primary',
+    needPercent: 10,
+    releasedBalance: 0,
     ownerId: ownerUid,
     ownerName: 'Owner',
     createdAt: serverTimestamp(),
@@ -384,7 +386,7 @@ try {
   assert.equal(marketExpenseSnapshot.data()?.amount, 125.75)
   const wishSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'wishes', wishId))
   assert.equal(wishSnapshot.data()?.title, 'Live smoke wish')
-  assert.equal(wishSnapshot.data()?.needPercent, 5)
+  assert.equal(wishSnapshot.data()?.fundingLevel, 'primary')
   const childNeedReference = doc(memberDb, 'households', householdId, 'childrenNeeds', childNeedId)
   assert.equal((await getDoc(childNeedReference)).data()?.childName, 'Noor')
   await updateDoc(childNeedReference, {
@@ -495,6 +497,51 @@ try {
   await expectPermissionDenied(
     () => getDoc(doc(memberDb, 'users', ownerUid, 'promotionScenarios', scenarioId)),
     'A household member could read the owner promotion scenario.',
+  )
+
+  liveStep = 'تطبيق صلاحية تعديل الأماني وحفظ الرصيد عند التعليق'
+  await updateDoc(doc(ownerDb, 'households', householdId, 'members', memberUid), {
+    permissions: { market: 'edit', wishes: 'edit', noor: 'edit' },
+  })
+  const memberWishReference = doc(memberDb, 'households', householdId, 'wishes', wishId)
+  await updateDoc(memberWishReference, {
+    fundingLevel: 'paused',
+    updatedBy: memberUid,
+    updatedByName: 'Member',
+    updatedAt: serverTimestamp(),
+  })
+  assert.equal(
+    (await getDoc(memberWishesBudgetReference)).data()?.allocations?.[wishId],
+    35,
+    'Pausing a wish changed an allocation that was already saved.',
+  )
+  assert.equal(
+    (await getDoc(memberWishReference)).data()?.fundingLevel,
+    'paused',
+    'The member edit permission could not update the wish funding state.',
+  )
+
+  liveStep = 'إرجاع رصيد الأمنية إلى الاحتياطي'
+  await updateDoc(memberWishesBudgetReference, {
+    allocations: {},
+    allocatedAmount: 0,
+    reserveAmount: 700,
+    updatedBy: memberUid,
+    updatedByName: 'Member',
+    updatedAt: serverTimestamp(),
+  })
+  await updateDoc(memberWishReference, {
+    saved: 0,
+    fundingLevel: 'paused',
+    releasedBalance: 0,
+    updatedBy: memberUid,
+    updatedByName: 'Member',
+    updatedAt: serverTimestamp(),
+  })
+  assert.equal(
+    (await getDoc(memberWishesBudgetReference)).data()?.reserveAmount,
+    700,
+    'Resetting a wish did not return its allocation to the fund reserve.',
   )
 
   liveStep = 'تطبيق صلاحية المشاهدة فقط'

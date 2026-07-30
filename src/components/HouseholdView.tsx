@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import type { User } from 'firebase/auth'
+import '../household.css'
 import {
   accessLabels,
   nextAccessLevel,

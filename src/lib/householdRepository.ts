@@ -21,6 +21,7 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
   where,
   type DocumentData,
   type QueryDocumentSnapshot,
@@ -36,11 +37,13 @@ import { auth, authPersistenceReady, db } from './firebase'
 import { ARABIC_GREGORIAN_LOCALE } from './locale'
 import { normalizeMarketCycleStartDay } from './marketCycle'
 import {
+  appendWishFundContribution,
   distributeWishesFund,
-  getWishNeedLevel,
-  normalizeWishNeedPercent,
+  getWishFundingCapacityError,
+  getWishFundingLevel,
+  resolveWishFundingPortfolio,
   roundMoney,
-  type WishNeedPercent,
+  type WishFundingLevel,
 } from './wishesFund'
 
 export type SharedWish = {
@@ -51,8 +54,9 @@ export type SharedWish = {
   target: number
   deadline: string
   owner: string
-  needPercent: WishNeedPercent
-  needLabel: string
+  fundingLevel: WishFundingLevel
+  fundingLabel: string
+  fundingShare: number
   currentMonthAllocation: number
 }
 
@@ -118,6 +122,11 @@ const defaultMemberPermissions: Record<SharedModule, AccessLevel> = {
 const getUserName = (user: User) => user.displayName?.trim() || user.email?.split('@')[0] || 'عضو رُشد'
 const getInitials = (name: string) => name.trim().slice(0, 1) || 'ر'
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
+const getLegacyWishNeedPercent = (fundingLevel: WishFundingLevel) => {
+  if (fundingLevel === 'primary') return 10
+  if (fundingLevel === 'medium') return 3
+  return 1
+}
 
 const formatActivityTime = (value: unknown) => {
   const date = value instanceof Timestamp ? value.toDate() : value instanceof Date ? value : null
@@ -397,8 +406,9 @@ export const loadSharedWorkspaceData = async (
   user: User,
   marketMonthKey: string,
   wishesMonthKey: string,
+  knownHouseholdId?: string,
 ): Promise<SharedWorkspaceData> => {
-  const householdId = await ensureHousehold(user)
+  const householdId = knownHouseholdId || await ensureHousehold(user)
   const [membershipSnapshot, householdSnapshot] = await Promise.all([
     getDoc(doc(db, 'households', householdId, 'members', user.uid)),
     getDoc(doc(db, 'households', householdId)),
@@ -423,16 +433,30 @@ export const loadSharedWorkspaceData = async (
     const data = snapshot.data()
     return data.kind === 'fund' || data.kind === 'budget'
   })
+  const sharedWishDocuments = wishesDocuments.filter((snapshot) => {
+    const kind = snapshot.data().kind
+    return kind !== 'budget' && kind !== 'fund'
+  })
+  const resolvedFundingLevels = resolveWishFundingPortfolio(sharedWishDocuments.map((snapshot) => ({
+    id: snapshot.id,
+    fundingLevel: snapshot.data().fundingLevel,
+    legacyNeedPercent: snapshot.data().needPercent,
+  })))
   const wishesBudgetDocument = wishesFundDocuments.find(
     (snapshot) => snapshot.data().monthKey === wishesMonthKey,
   )
   const wishesBudgetData = wishesBudgetDocument?.data()
-  const wishesReserveBalance = roundMoney(wishesFundDocuments.reduce((total, snapshot) => {
+  const fundReserveBalance = wishesFundDocuments.reduce((total, snapshot) => {
     const fund = snapshot.data()
     const amount = Number(fund.amount ?? fund.budget ?? 0)
     const reserve = Number(fund.reserveAmount)
     return total + (Number.isFinite(reserve) ? Math.max(0, reserve) : Math.max(0, amount))
-  }, 0))
+  }, 0)
+  const releasedReserveBalance = sharedWishDocuments.reduce(
+    (total, snapshot) => total + Math.max(0, Number(snapshot.data().releasedBalance || 0)),
+    0,
+  )
+  const wishesReserveBalance = roundMoney(fundReserveBalance + releasedReserveBalance)
   const allocatedByWish = new Map<string, number>()
   wishesFundDocuments.forEach((snapshot) => {
     const allocations = snapshot.data().allocations
@@ -518,12 +542,10 @@ export const loadSharedWorkspaceData = async (
         addedByName: String(need.addedByName || 'عضو رُشد'),
       }
     }),
-    wishes: wishesDocuments.filter((snapshot) => {
-      const kind = snapshot.data().kind
-      return kind !== 'budget' && kind !== 'fund'
-    }).map((snapshot) => {
+    wishes: sharedWishDocuments.map((snapshot) => {
       const wish = snapshot.data()
-      const needLevel = getWishNeedLevel(wish.needPercent)
+      const fundingLevel = resolvedFundingLevels[snapshot.id] ?? 'paused'
+      const funding = getWishFundingLevel(fundingLevel)
       return {
         id: snapshot.id,
         title: String(wish.title || ''),
@@ -532,8 +554,9 @@ export const loadSharedWorkspaceData = async (
         target: Math.max(0, Number(wish.target) || 0),
         deadline: String(wish.deadline || 'بدون موعد'),
         owner: String(wish.ownerName || 'العائلة'),
-        needPercent: needLevel.percent,
-        needLabel: needLevel.label,
+        fundingLevel,
+        fundingLabel: funding.label,
+        fundingShare: funding.share,
         currentMonthAllocation: Math.max(0, Number(currentMonthAllocations[snapshot.id] || 0)),
       }
     }),
@@ -544,7 +567,7 @@ export const saveSharedWishesBudget = async (
   householdId: string,
   user: User,
   monthKey: string,
-  budget: number,
+  contributionInput: number,
 ) => {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new Error('شهر صندوق الأماني غير صالح.')
   const reference = doc(db, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
@@ -552,12 +575,11 @@ export const saveSharedWishesBudget = async (
     getDoc(reference),
     getDocs(collection(db, 'households', householdId, 'wishes')),
   ])
-  const amount = Math.max(0.01, roundMoney(budget))
+  const contribution = Math.max(0.01, roundMoney(contributionInput))
   const currentFundData = snapshot.exists() ? snapshot.data() : null
-  const otherAllocations = new Map<string, number>()
+  const allocatedByWish = new Map<string, number>()
 
   wishesSnapshot.docs.forEach((wishSnapshot) => {
-    if (wishSnapshot.id === reference.id) return
     const data = wishSnapshot.data()
     if (data.kind !== 'fund' && data.kind !== 'budget') return
     const allocations = data.allocations
@@ -565,9 +587,9 @@ export const saveSharedWishesBudget = async (
     Object.entries(allocations as Record<string, unknown>).forEach(([wishId, allocation]) => {
       const allocationAmount = Math.max(0, Number(allocation || 0))
       if (!Number.isFinite(allocationAmount)) return
-      otherAllocations.set(
+      allocatedByWish.set(
         wishId,
-        roundMoney((otherAllocations.get(wishId) ?? 0) + allocationAmount),
+        roundMoney((allocatedByWish.get(wishId) ?? 0) + allocationAmount),
       )
     })
   })
@@ -576,24 +598,30 @@ export const saveSharedWishesBudget = async (
     const kind = wishSnapshot.data().kind
     return kind !== 'fund' && kind !== 'budget'
   })
-  const distribution = distributeWishesFund(amount, wishDocuments.map((wishSnapshot) => {
+  const resolvedFundingLevels = resolveWishFundingPortfolio(wishDocuments.map((wishSnapshot) => ({
+    id: wishSnapshot.id,
+    fundingLevel: wishSnapshot.data().fundingLevel,
+    legacyNeedPercent: wishSnapshot.data().needPercent,
+  })))
+  const distribution = distributeWishesFund(contribution, wishDocuments.map((wishSnapshot) => {
     const wish = wishSnapshot.data()
     return {
       id: wishSnapshot.id,
       target: Math.max(0, Number(wish.target) || 0),
-      saved: roundMoney((Number(wish.saved) || 0) + (otherAllocations.get(wishSnapshot.id) ?? 0)),
-      needPercent: normalizeWishNeedPercent(wish.needPercent),
+      saved: roundMoney((Number(wish.saved) || 0) + (allocatedByWish.get(wishSnapshot.id) ?? 0)),
+      fundingLevel: resolvedFundingLevels[wishSnapshot.id] ?? 'paused',
     }
   }))
+  const ledger = appendWishFundContribution(currentFundData, contribution, distribution)
 
   await setDoc(reference, {
     kind: 'fund',
     monthKey,
-    amount,
-    budget: amount,
-    allocations: distribution.allocations,
-    allocatedAmount: distribution.allocatedAmount,
-    reserveAmount: distribution.reserveAmount,
+    amount: ledger.amount,
+    budget: ledger.amount,
+    allocations: ledger.allocations,
+    allocatedAmount: ledger.allocatedAmount,
+    reserveAmount: ledger.reserveAmount,
     ownerId: String(currentFundData?.ownerId || user.uid),
     ownerName: String(currentFundData?.ownerName || getUserName(user)),
     updatedBy: user.uid,
@@ -604,8 +632,8 @@ export const saveSharedWishesBudget = async (
   await insertActivity(
     householdId,
     user,
-    snapshot.exists() ? 'أعاد توزيع دفعة الأماني' : 'أضاف دفعة لصندوق الأماني',
-    `${monthKey} · ${amount} ريال · المتبقي ${distribution.reserveAmount} ريال`,
+    snapshot.exists() ? 'أضاف دفعة أخرى لصندوق الأماني' : 'أضاف دفعة لصندوق الأماني',
+    `${monthKey} · دفعة ${contribution} ريال · بقي منها ${distribution.reserveAmount} ريال`,
   )
 }
 
@@ -687,9 +715,32 @@ export const addSharedWish = async (
     icon: string
     target: number
     deadline: string
-    needPercent: WishNeedPercent
+    fundingLevel: WishFundingLevel
   },
 ) => {
+  const wishesSnapshot = await getDocs(query(
+    collection(db, 'households', householdId, 'wishes'),
+    orderBy('createdAt', 'asc'),
+  ))
+  const wishDocuments = wishesSnapshot.docs.filter((snapshot) => {
+    const kind = snapshot.data().kind
+    return kind !== 'fund' && kind !== 'budget'
+  })
+  const resolvedLevels = resolveWishFundingPortfolio(wishDocuments.map((snapshot) => ({
+    id: snapshot.id,
+    fundingLevel: snapshot.data().fundingLevel,
+    legacyNeedPercent: snapshot.data().needPercent,
+  })))
+  const capacityError = getWishFundingCapacityError(
+    wishDocuments.map((snapshot) => ({
+      id: snapshot.id,
+      fundingLevel: resolvedLevels[snapshot.id] ?? 'paused',
+    })),
+    '__new__',
+    input.fundingLevel,
+  )
+  if (capacityError) throw new Error(capacityError)
+
   await addDoc(collection(db, 'households', householdId, 'wishes'), {
     kind: 'wish',
     title: input.title,
@@ -697,7 +748,9 @@ export const addSharedWish = async (
     target: input.target,
     saved: 0,
     deadline: input.deadline,
-    needPercent: normalizeWishNeedPercent(input.needPercent),
+    fundingLevel: input.fundingLevel,
+    needPercent: getLegacyWishNeedPercent(input.fundingLevel),
+    releasedBalance: 0,
     ownerId: user.uid,
     ownerName: getUserName(user),
     createdAt: serverTimestamp(),
@@ -706,18 +759,39 @@ export const addSharedWish = async (
   await insertActivity(householdId, user, 'أضاف أمنية مشتركة', input.title)
 }
 
-export const updateSharedWishNeedLevel = async (
+export const updateSharedWishFundingLevel = async (
   householdId: string,
   user: User,
   wishId: string,
-  needPercentInput: number,
+  fundingLevel: WishFundingLevel,
 ) => {
-  const needPercent = normalizeWishNeedPercent(needPercentInput)
-  if (needPercent !== needPercentInput) throw new Error('اختر درجة احتياج صحيحة.')
-  const needLevel = getWishNeedLevel(needPercent)
+  const wishesSnapshot = await getDocs(query(
+    collection(db, 'households', householdId, 'wishes'),
+    orderBy('createdAt', 'asc'),
+  ))
+  const wishDocuments = wishesSnapshot.docs.filter((snapshot) => {
+    const kind = snapshot.data().kind
+    return kind !== 'fund' && kind !== 'budget'
+  })
+  const resolvedLevels = resolveWishFundingPortfolio(wishDocuments.map((snapshot) => ({
+    id: snapshot.id,
+    fundingLevel: snapshot.data().fundingLevel,
+    legacyNeedPercent: snapshot.data().needPercent,
+  })))
+  const capacityError = getWishFundingCapacityError(
+    wishDocuments.map((snapshot) => ({
+      id: snapshot.id,
+      fundingLevel: resolvedLevels[snapshot.id] ?? 'paused',
+    })),
+    wishId,
+    fundingLevel,
+  )
+  if (capacityError) throw new Error(capacityError)
+  const funding = getWishFundingLevel(fundingLevel)
   await updateDoc(doc(db, 'households', householdId, 'wishes', wishId), {
     kind: 'wish',
-    needPercent,
+    fundingLevel,
+    needPercent: getLegacyWishNeedPercent(fundingLevel),
     updatedBy: user.uid,
     updatedByName: getUserName(user),
     updatedAt: serverTimestamp(),
@@ -725,9 +799,88 @@ export const updateSharedWishNeedLevel = async (
   await insertActivity(
     householdId,
     user,
-    'عدّل احتياج أمنية',
-    `${needLevel.label} · ${needPercent}%`,
+    fundingLevel === 'paused' ? 'علّق أمنية' : 'عدّل سرعة أمنية',
+    `${funding.label} · يطبق على الدفعات القادمة`,
   )
+}
+
+export const resetSharedWishSavings = async (
+  householdId: string,
+  user: User,
+  wishId: string,
+) => {
+  const wishesSnapshot = await getDocs(collection(db, 'households', householdId, 'wishes'))
+  const wishSnapshot = wishesSnapshot.docs.find((snapshot) => snapshot.id === wishId)
+  if (!wishSnapshot) throw new Error('تعذر العثور على الأمنية.')
+  const wish = wishSnapshot.data()
+  const baseSaved = Math.max(0, Number(wish.saved || 0))
+  const fundsWithAllocation = wishesSnapshot.docs.filter((snapshot) => {
+    const data = snapshot.data()
+    if (data.kind !== 'fund' && data.kind !== 'budget') return false
+    const allocations = data.allocations
+    return Boolean(
+      allocations
+      && typeof allocations === 'object'
+      && !Array.isArray(allocations)
+      && Number((allocations as Record<string, unknown>)[wishId]) > 0,
+    )
+  })
+  if (fundsWithAllocation.length > 490) {
+    throw new Error('سجل الأمنية كبير جدًا للتصفير دفعة واحدة. تواصل مع الدعم.')
+  }
+
+  const batch = writeBatch(db)
+  let returnedFromFunds = 0
+  fundsWithAllocation.forEach((fundSnapshot) => {
+    const fund = fundSnapshot.data()
+    const allocations = { ...(fund.allocations as Record<string, unknown>) }
+    returnedFromFunds = roundMoney(returnedFromFunds + Math.max(0, Number(allocations[wishId] || 0)))
+    delete allocations[wishId]
+    const normalizedAllocations: Record<string, number> = {}
+    Object.entries(allocations).forEach(([allocationWishId, allocation]) => {
+      const amount = Math.max(0, Number(allocation || 0))
+      if (Number.isFinite(amount) && amount > 0) normalizedAllocations[allocationWishId] = roundMoney(amount)
+    })
+    const allocatedAmount = roundMoney(
+      Object.values(normalizedAllocations).reduce((total, allocation) => total + allocation, 0),
+    )
+    const amount = Math.max(0, Number(fund.amount ?? fund.budget ?? 0))
+    batch.update(fundSnapshot.ref, {
+      kind: 'fund',
+      amount,
+      budget: amount,
+      allocations: normalizedAllocations,
+      allocatedAmount,
+      reserveAmount: roundMoney(Math.max(0, amount - allocatedAmount)),
+      updatedBy: user.uid,
+      updatedByName: getUserName(user),
+      updatedAt: serverTimestamp(),
+    })
+  })
+
+  const currentFundingLevel = getWishFundingLevel(wish.fundingLevel, wish.needPercent).id
+  batch.update(wishSnapshot.ref, {
+    kind: 'wish',
+    saved: 0,
+    fundingLevel: currentFundingLevel,
+    needPercent: getLegacyWishNeedPercent(currentFundingLevel),
+    releasedBalance: roundMoney(Math.max(0, Number(wish.releasedBalance || 0)) + baseSaved),
+    updatedBy: user.uid,
+    updatedByName: getUserName(user),
+    updatedAt: serverTimestamp(),
+  })
+  await batch.commit()
+
+  const returnedAmount = roundMoney(baseSaved + returnedFromFunds)
+  if (returnedAmount > 0) {
+    await insertActivity(
+      householdId,
+      user,
+      'صفّر رصيد أمنية',
+      `${String(wish.title || 'أمنية')} · عاد ${returnedAmount} ريال إلى رصيد الصندوق`,
+    )
+  }
+  return returnedAmount
 }
 
 export const addSharedChildNeed = async (
@@ -773,21 +926,39 @@ export const subscribeToSharedData = (
   onChange: () => void,
   onError?: (cause: unknown) => void,
 ): Unsubscribe => {
+  const afterInitialSnapshot = () => {
+    let ready = false
+    return () => {
+      if (!ready) {
+        ready = true
+        return
+      }
+      onChange()
+    }
+  }
   const unsubscribers: Unsubscribe[] = [
-    onSnapshot(doc(db, 'households', householdId), onChange, onError),
+    onSnapshot(doc(db, 'households', householdId), afterInitialSnapshot(), onError),
   ]
   if (permissions.market !== 'none') {
     unsubscribers.push(onSnapshot(
       query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey)),
-      onChange,
+      afterInitialSnapshot(),
       onError,
     ))
   }
   if (permissions.wishes !== 'none') {
-    unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'wishes'), onChange, onError))
+    unsubscribers.push(onSnapshot(
+      collection(db, 'households', householdId, 'wishes'),
+      afterInitialSnapshot(),
+      onError,
+    ))
   }
   if (permissions.noor !== 'none') {
-    unsubscribers.push(onSnapshot(collection(db, 'households', householdId, 'childrenNeeds'), onChange, onError))
+    unsubscribers.push(onSnapshot(
+      collection(db, 'households', householdId, 'childrenNeeds'),
+      afterInitialSnapshot(),
+      onError,
+    ))
   }
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
 }

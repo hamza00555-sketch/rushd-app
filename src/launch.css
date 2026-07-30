@@ -716,6 +716,20 @@ body {
 .offline-banner ~ .launch-tools-trigger { top: calc(env(safe-area-inset-top) + 56px); }
 .offline-banner + .auth-screen { padding-top: calc(env(safe-area-inset-top) + 56px); }
 
+.tool-loading-overlay {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: #fff;
+  background: rgba(20, 17, 61, .78);
+}
+
+.tool-loading-overlay p { color: inherit; }
+
 @media (max-width: 620px) {
   .household-sheet,
   .promotion-sheet,

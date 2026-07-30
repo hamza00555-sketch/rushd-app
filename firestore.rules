@@ -127,9 +127,14 @@ service cloud.firestore {
         && request.resource.data.amount > 0;
     }
 
-    function validWishNeedPercent() {
-      return request.resource.data.needPercent is number
-        && request.resource.data.needPercent in [1, 2, 3, 5, 10];
+    function validWishFundingLevel() {
+      return request.resource.data.fundingLevel is string
+        && request.resource.data.fundingLevel in [
+          'primary',
+          'medium',
+          'calm',
+          'paused'
+        ];
     }
 
     function validSharedWish() {
@@ -143,7 +148,10 @@ service cloud.firestore {
         && request.resource.data.deadline is string
         && request.resource.data.ownerId is string
         && request.resource.data.ownerId.size() > 0
-        && validWishNeedPercent();
+        && validWishFundingLevel()
+        && (!('releasedBalance' in request.resource.data)
+          || (request.resource.data.releasedBalance is number
+            && request.resource.data.releasedBalance >= 0));
     }
 
     function validWishesFund() {
@@ -159,6 +167,10 @@ service cloud.firestore {
         && request.resource.data.reserveAmount is number
         && request.resource.data.reserveAmount >= 0
         && request.resource.data.reserveAmount <= request.resource.data.amount
+        && request.resource.data.allocatedAmount + request.resource.data.reserveAmount
+          >= request.resource.data.amount - 0.01
+        && request.resource.data.allocatedAmount + request.resource.data.reserveAmount
+          <= request.resource.data.amount + 0.01
         && request.resource.data.ownerId is string
         && request.resource.data.ownerId.size() > 0
         && request.resource.data.updatedBy == request.auth.uid;

@@ -1,20 +1,49 @@
 import { ARABIC_GREGORIAN_LOCALE } from './locale'
 
-export const WISH_NEED_LEVELS = [
-  { percent: 1, label: 'ننتظر وقته', description: 'غير مستعجل الآن' },
-  { percent: 2, label: 'أولوية خفيفة', description: 'يتقدم بهدوء' },
-  { percent: 3, label: 'احتياج عادي', description: 'له حصة متوازنة' },
-  { percent: 5, label: 'مهم قريبًا', description: 'نسرّع الوصول له' },
-  { percent: 10, label: 'أولوية الآن', description: 'أعلى حصة من كل دفعة' },
+export const WISH_FUNDING_LEVELS = [
+  {
+    id: 'primary',
+    label: 'أساسية',
+    description: 'أسرع أمنية الآن',
+    share: 60,
+    maxActive: 1,
+  },
+  {
+    id: 'medium',
+    label: 'متوسطة',
+    description: 'مهمة لكن ليست الأولى',
+    share: 30,
+    maxActive: 2,
+  },
+  {
+    id: 'calm',
+    label: 'هادئة',
+    description: 'تتقدم بدون استعجال',
+    share: 10,
+    maxActive: 3,
+  },
+  {
+    id: 'paused',
+    label: 'معلّقة',
+    description: 'رصيدها محفوظ ولا تستقبل دفعات',
+    share: 0,
+    maxActive: Number.POSITIVE_INFINITY,
+  },
 ] as const
 
-export type WishNeedPercent = typeof WISH_NEED_LEVELS[number]['percent']
+export type WishFundingLevel = typeof WISH_FUNDING_LEVELS[number]['id']
 
 export type WishDistributionInput = {
   id: string
   target: number
   saved: number
-  needPercent: number
+  fundingLevel: WishFundingLevel
+}
+
+export type WishFundingPortfolioInput = {
+  id: string
+  fundingLevel?: unknown
+  legacyNeedPercent?: unknown
 }
 
 export type WishFundDistribution = {
@@ -24,20 +53,101 @@ export type WishFundDistribution = {
   scale: number
 }
 
+export type WishFundLedger = {
+  amount: number
+  allocations: Record<string, number>
+  allocatedAmount: number
+  reserveAmount: number
+}
+
 const MONEY_PRECISION = 100
+const ACTIVE_WISH_LIMIT = 3
 
 export const roundMoney = (value: number) =>
   Math.round((Number.isFinite(value) ? value : 0) * MONEY_PRECISION) / MONEY_PRECISION
 
-export const normalizeWishNeedPercent = (value: unknown): WishNeedPercent => {
-  const parsed = Number(value)
-  const matched = WISH_NEED_LEVELS.find((level) => level.percent === parsed)
-  return matched?.percent ?? 3
+export const isWishFundingLevel = (value: unknown): value is WishFundingLevel =>
+  WISH_FUNDING_LEVELS.some((level) => level.id === value)
+
+export const normalizeWishFundingLevel = (
+  value: unknown,
+  legacyNeedPercent?: unknown,
+): WishFundingLevel => {
+  if (isWishFundingLevel(value)) return value
+  const legacy = Number(legacyNeedPercent)
+  if (legacy >= 5) return 'primary'
+  if (legacy >= 3) return 'medium'
+  return 'calm'
 }
 
-export const getWishNeedLevel = (value: unknown) => {
-  const percent = normalizeWishNeedPercent(value)
-  return WISH_NEED_LEVELS.find((level) => level.percent === percent) ?? WISH_NEED_LEVELS[2]
+export const getWishFundingLevel = (value: unknown, legacyNeedPercent?: unknown) => {
+  const id = normalizeWishFundingLevel(value, legacyNeedPercent)
+  return WISH_FUNDING_LEVELS.find((level) => level.id === id) ?? WISH_FUNDING_LEVELS[2]
+}
+
+export const resolveWishFundingPortfolio = (
+  wishes: WishFundingPortfolioInput[],
+): Record<string, WishFundingLevel> => {
+  const resolved: Record<string, WishFundingLevel> = {}
+  const counts: Record<Exclude<WishFundingLevel, 'paused'>, number> = {
+    primary: 0,
+    medium: 0,
+    calm: 0,
+  }
+  let activeCount = 0
+
+  const ordered = [
+    ...wishes.filter((wish) => isWishFundingLevel(wish.fundingLevel)),
+    ...wishes.filter((wish) => !isWishFundingLevel(wish.fundingLevel)),
+  ]
+
+  ordered.forEach((wish) => {
+    const explicit = isWishFundingLevel(wish.fundingLevel)
+    const desired = normalizeWishFundingLevel(wish.fundingLevel, wish.legacyNeedPercent)
+    if (desired === 'paused') {
+      resolved[wish.id] = 'paused'
+      return
+    }
+
+    const candidates: Array<Exclude<WishFundingLevel, 'paused'>> = explicit
+      ? [desired]
+      : desired === 'primary'
+        ? ['primary', 'medium', 'calm']
+        : desired === 'medium'
+          ? ['medium', 'calm']
+          : ['calm']
+    const available = candidates.find((candidate) => (
+      activeCount < ACTIVE_WISH_LIMIT
+      && counts[candidate] < getWishFundingLevel(candidate).maxActive
+    ))
+    if (!available) {
+      resolved[wish.id] = 'paused'
+      return
+    }
+
+    resolved[wish.id] = available
+    counts[available] += 1
+    activeCount += 1
+  })
+
+  return resolved
+}
+
+export const getWishFundingCapacityError = (
+  wishes: Array<{ id: string; fundingLevel: WishFundingLevel }>,
+  wishId: string,
+  nextLevel: WishFundingLevel,
+) => {
+  if (nextLevel === 'paused') return ''
+  const others = wishes.filter((wish) => wish.id !== wishId && wish.fundingLevel !== 'paused')
+  if (others.length >= ACTIVE_WISH_LIMIT) return 'عندكم 3 أماني نشطة بالفعل. علّق أمنية قبل تفعيل غيرها.'
+  const sameLevelCount = others.filter((wish) => wish.fundingLevel === nextLevel).length
+  const definition = getWishFundingLevel(nextLevel)
+  if (sameLevelCount >= definition.maxActive) {
+    if (nextLevel === 'primary') return 'يمكن اختيار أمنية أساسية واحدة فقط.'
+    if (nextLevel === 'medium') return 'يمكن اختيار أمنيتين متوسطتين كحد أقصى.'
+  }
+  return ''
 }
 
 export const distributeWishesFund = (
@@ -48,10 +158,10 @@ export const distributeWishesFund = (
   const requested = wishes
     .map((wish) => {
       const remaining = Math.max(0, roundMoney(wish.target - wish.saved))
-      const needPercent = normalizeWishNeedPercent(wish.needPercent)
+      const share = getWishFundingLevel(wish.fundingLevel).share
       return {
         id: wish.id,
-        requested: Math.min(remaining, amount * (needPercent / 100)),
+        requested: Math.min(remaining, amount * (share / 100)),
       }
     })
     .filter((wish) => wish.requested > 0)
@@ -87,30 +197,75 @@ export const distributeWishesFund = (
   }
 }
 
+export const appendWishFundContribution = (
+  current: {
+    amount?: unknown
+    budget?: unknown
+    allocations?: unknown
+    reserveAmount?: unknown
+  } | null,
+  contributionInput: number,
+  distribution: WishFundDistribution,
+): WishFundLedger => {
+  const existingAmount = Math.max(0, Number(current?.amount ?? current?.budget ?? 0))
+  const existingAllocations = current?.allocations
+    && typeof current.allocations === 'object'
+    && !Array.isArray(current.allocations)
+    ? current.allocations as Record<string, unknown>
+    : {}
+  const allocations: Record<string, number> = {}
+  Object.entries(existingAllocations).forEach(([wishId, allocation]) => {
+    const amount = Math.max(0, Number(allocation || 0))
+    if (Number.isFinite(amount) && amount > 0) allocations[wishId] = roundMoney(amount)
+  })
+  Object.entries(distribution.allocations).forEach(([wishId, allocation]) => {
+    allocations[wishId] = roundMoney((allocations[wishId] ?? 0) + allocation)
+  })
+
+  const existingAllocatedAmount = roundMoney(
+    Object.values(existingAllocations).reduce(
+      (total: number, allocation) => total + Math.max(0, Number(allocation || 0)),
+      0,
+    ),
+  )
+  const rawExistingReserve = Number(current?.reserveAmount)
+  const existingReserveAmount = Number.isFinite(rawExistingReserve)
+    ? Math.max(0, rawExistingReserve)
+    : Math.max(0, existingAmount - existingAllocatedAmount)
+  const contribution = Math.max(0, roundMoney(contributionInput))
+
+  return {
+    amount: roundMoney(existingAmount + contribution),
+    allocations,
+    allocatedAmount: roundMoney(existingAllocatedAmount + distribution.allocatedAmount),
+    reserveAmount: roundMoney(existingReserveAmount + distribution.reserveAmount),
+  }
+}
+
 export const getProjectedMonthlyWishShare = (
   monthlyFundAmountInput: number,
-  needPercentInput: number,
-  activeNeedPercentTotal: number,
+  fundingLevelInput: WishFundingLevel,
+  activeShareTotal: number,
 ) => {
   const monthlyFundAmount = Math.max(0, roundMoney(monthlyFundAmountInput))
-  const needPercent = normalizeWishNeedPercent(needPercentInput)
-  const scale = activeNeedPercentTotal > 100 ? 100 / activeNeedPercentTotal : 1
-  return roundMoney(monthlyFundAmount * (needPercent / 100) * scale)
+  const share = getWishFundingLevel(fundingLevelInput).share
+  const scale = activeShareTotal > 100 ? 100 / activeShareTotal : 1
+  return roundMoney(monthlyFundAmount * (share / 100) * scale)
 }
 
 export const getWishCompletionForecast = ({
   target,
   saved,
   monthlyFundAmount,
-  needPercent,
-  activeNeedPercentTotal,
+  fundingLevel,
+  activeShareTotal,
   monthKey,
 }: {
   target: number
   saved: number
   monthlyFundAmount: number
-  needPercent: number
-  activeNeedPercentTotal: number
+  fundingLevel: WishFundingLevel
+  activeShareTotal: number
   monthKey: string
 }) => {
   const remaining = Math.max(0, roundMoney(target - saved))
@@ -124,8 +279,8 @@ export const getWishCompletionForecast = ({
 
   const monthlyShare = getProjectedMonthlyWishShare(
     monthlyFundAmount,
-    needPercent,
-    activeNeedPercentTotal,
+    fundingLevel,
+    activeShareTotal,
   )
   if (monthlyShare <= 0 || !/^\d{4}-\d{2}$/.test(monthKey)) return null
 

@@ -5,13 +5,14 @@ import {
   addSharedMarketExpense,
   addSharedWish,
   loadSharedWorkspaceData,
+  resetSharedWishSavings,
   saveSharedMarketBudget,
   saveSharedMarketCycleStartDay,
   saveSharedWishesBudget,
   setSharedChildNeedCompleted,
   subscribeToMemberAccess,
   subscribeToSharedData,
-  updateSharedWishNeedLevel,
+  updateSharedWishFundingLevel,
   type SharedChildNeed,
   type SharedMarketBudget,
   type SharedMarketExpense,
@@ -21,7 +22,7 @@ import {
 } from '../lib/householdRepository'
 import type { AccessLevel, SharedModule } from '../lib/household'
 import { getFirebaseErrorMessage } from '../lib/firebaseErrors'
-import type { WishNeedPercent } from '../lib/wishesFund'
+import type { WishFundingLevel } from '../lib/wishesFund'
 
 export type SharedSyncStatus = 'connecting' | 'synced' | 'error'
 
@@ -50,6 +51,10 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
   const sharedRealtimeRef = useRef<Unsubscribe | null>(null)
   const memberRealtimeRef = useRef<Unsubscribe | null>(null)
   const permissionsRef = useRef(noAccess)
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshInFlightRef = useRef(false)
+  const refreshPendingRef = useRef(false)
+  const refreshRunnerRef = useRef<() => void>(() => undefined)
   marketMonthKeyRef.current = marketMonthKey
   wishesMonthKeyRef.current = wishesMonthKey
 
@@ -76,7 +81,12 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
   }, [])
 
   const refreshData = useCallback(async () => {
-    const data = await loadSharedWorkspaceData(user, marketMonthKey, wishesMonthKey)
+    const data = await loadSharedWorkspaceData(
+      user,
+      marketMonthKey,
+      wishesMonthKey,
+      householdIdRef.current ?? undefined,
+    )
     if (
       marketMonthKeyRef.current === marketMonthKey
       && wishesMonthKeyRef.current === wishesMonthKey
@@ -84,32 +94,70 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     return data
   }, [applyData, marketMonthKey, user, wishesMonthKey])
 
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null
+      refreshRunnerRef.current()
+    }, 70)
+  }, [])
+
+  const runRefresh = useCallback(async () => {
+    if (refreshInFlightRef.current) {
+      refreshPendingRef.current = true
+      return
+    }
+    refreshInFlightRef.current = true
+    try {
+      await refreshData()
+    } catch (cause) {
+      fail(cause)
+    } finally {
+      refreshInFlightRef.current = false
+      if (refreshPendingRef.current) {
+        refreshPendingRef.current = false
+        scheduleRefresh()
+      }
+    }
+  }, [fail, refreshData, scheduleRefresh])
+  refreshRunnerRef.current = () => void runRefresh()
+
   const connectSharedRealtime = useCallback((data: SharedWorkspaceData) => {
     sharedRealtimeRef.current?.()
-    sharedRealtimeRef.current = subscribeToSharedData(data.householdId, data.permissions, marketMonthKey, () => {
-      void refreshData().catch(fail)
-    }, fail)
-  }, [fail, marketMonthKey, refreshData])
+    sharedRealtimeRef.current = subscribeToSharedData(
+      data.householdId,
+      data.permissions,
+      marketMonthKey,
+      scheduleRefresh,
+      fail,
+    )
+  }, [fail, marketMonthKey, scheduleRefresh])
 
   useEffect(() => {
     let active = true
-    setStatus('connecting')
-    setError('')
-    setWishes([])
-    setWishesBudget(null)
-    setWishesReserveBalance(0)
-    setMarketBudget(null)
-    setMarketExpenses([])
-    setChildNeeds([])
+    if (!householdIdRef.current) {
+      setStatus('connecting')
+      setError('')
+      setWishes([])
+      setWishesBudget(null)
+      setWishesReserveBalance(0)
+      setMarketBudget(null)
+      setMarketExpenses([])
+      setChildNeeds([])
+    }
 
     void refreshData()
       .then((data) => {
         if (!active) return
         connectSharedRealtime(data)
+        let memberSnapshotReady = false
         memberRealtimeRef.current = subscribeToMemberAccess(data.householdId, user.uid, () => {
+          if (!memberSnapshotReady) {
+            memberSnapshotReady = true
+            return
+          }
           void refreshData().then((nextData) => {
-            if (!active) return
-            connectSharedRealtime(nextData)
+            if (active) connectSharedRealtime(nextData)
           }).catch(fail)
         }, fail)
       })
@@ -121,7 +169,10 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
       memberRealtimeRef.current?.()
       sharedRealtimeRef.current = null
       memberRealtimeRef.current = null
-      householdIdRef.current = null
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
     }
   }, [connectSharedRealtime, fail, refreshData, user.uid])
 
@@ -130,77 +181,89 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (!isHouseholdOwnerRef.current) throw new Error('رب الأسرة فقط يقدر يحدد ميزانية السوبرماركت.')
     await saveSharedMarketBudget(householdId, user, marketMonthKey, budget)
-    await refreshData()
-  }, [marketMonthKey, refreshData, user])
+    scheduleRefresh()
+  }, [marketMonthKey, scheduleRefresh, user])
 
   const saveMarketCycleStartDay = useCallback(async (startDay: number) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (!isHouseholdOwnerRef.current) throw new Error('رب الأسرة فقط يقدر يحدد بداية شهر السوبرماركت.')
     await saveSharedMarketCycleStartDay(householdId, user, startDay)
-    await refreshData()
-  }, [refreshData, user])
+    scheduleRefresh()
+  }, [scheduleRefresh, user])
 
-  const saveWishesBudget = useCallback(async (budget: number) => {
+  const saveWishesBudget = useCallback(async (contribution: number) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.wishes !== 'edit') throw new Error('صلاحيتك في الأماني للعرض فقط.')
-    await saveSharedWishesBudget(householdId, user, wishesMonthKey, budget)
-    await refreshData()
-  }, [refreshData, user, wishesMonthKey])
+    await saveSharedWishesBudget(householdId, user, wishesMonthKey, contribution)
+    scheduleRefresh()
+  }, [scheduleRefresh, user, wishesMonthKey])
 
   const addMarketExpense = useCallback(async (amount: number, title: string) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
-    if (!marketBudget) throw new Error('حدّد ميزانية الشهر قبل تسجيل أي مشتريات.')
+    if (!marketBudget || marketBudget.monthKey !== marketMonthKey) {
+      throw new Error('حدّد ميزانية الشهر قبل تسجيل أي مشتريات.')
+    }
     await addSharedMarketExpense(householdId, user, marketMonthKey, amount, title)
-    await refreshData()
-  }, [marketBudget, marketMonthKey, refreshData, user])
+    scheduleRefresh()
+  }, [marketBudget, marketMonthKey, scheduleRefresh, user])
 
   const addWish = useCallback(async (input: {
     title: string
     icon: string
     target: number
     deadline: string
-    needPercent: WishNeedPercent
+    fundingLevel: WishFundingLevel
   }) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.wishes !== 'edit') throw new Error('صلاحيتك في الأماني للعرض فقط.')
     await addSharedWish(householdId, user, input)
-    if (wishesBudget) {
-      await saveSharedWishesBudget(householdId, user, wishesMonthKey, wishesBudget.amount)
-    }
-    await refreshData()
-  }, [refreshData, user, wishesBudget, wishesMonthKey])
+    scheduleRefresh()
+  }, [scheduleRefresh, user])
 
-  const updateWishNeedLevel = useCallback(async (wishId: string, needPercent: WishNeedPercent) => {
+  const updateWishFundingLevel = useCallback(async (
+    wishId: string,
+    fundingLevel: WishFundingLevel,
+  ) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.wishes !== 'edit') throw new Error('صلاحيتك في الأماني للعرض فقط.')
-    await updateSharedWishNeedLevel(householdId, user, wishId, needPercent)
-    if (wishesBudget) {
-      await saveSharedWishesBudget(householdId, user, wishesMonthKey, wishesBudget.amount)
-    }
-    await refreshData()
-  }, [refreshData, user, wishesBudget, wishesMonthKey])
+    await updateSharedWishFundingLevel(householdId, user, wishId, fundingLevel)
+    scheduleRefresh()
+  }, [scheduleRefresh, user])
 
-  const addChildNeed = useCallback(async (input: { title: string; childName: string; estimatedCost: number }) => {
+  const resetWishSavings = useCallback(async (wishId: string) => {
+    const householdId = householdIdRef.current
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (permissionsRef.current.wishes !== 'edit') throw new Error('صلاحيتك في الأماني للعرض فقط.')
+    const returnedAmount = await resetSharedWishSavings(householdId, user, wishId)
+    scheduleRefresh()
+    return returnedAmount
+  }, [scheduleRefresh, user])
+
+  const addChildNeed = useCallback(async (input: {
+    title: string
+    childName: string
+    estimatedCost: number
+  }) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.noor !== 'edit') throw new Error('صلاحيتك في احتياجات الأبناء للعرض فقط.')
     await addSharedChildNeed(householdId, user, input)
-    await refreshData()
-  }, [refreshData, user])
+    scheduleRefresh()
+  }, [scheduleRefresh, user])
 
   const toggleChildNeed = useCallback(async (needId: string, completed: boolean) => {
     const householdId = householdIdRef.current
     if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
     if (permissionsRef.current.noor !== 'edit') throw new Error('صلاحيتك في احتياجات الأبناء للعرض فقط.')
     await setSharedChildNeedCompleted(householdId, user, needId, completed)
-    await refreshData()
-  }, [refreshData, user])
+    scheduleRefresh()
+  }, [scheduleRefresh, user])
 
   return {
     wishes,
@@ -219,7 +282,8 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     saveWishesBudget,
     addMarketExpense,
     addWish,
-    updateWishNeedLevel,
+    updateWishFundingLevel,
+    resetWishSavings,
     addChildNeed,
     toggleChildNeed,
   }

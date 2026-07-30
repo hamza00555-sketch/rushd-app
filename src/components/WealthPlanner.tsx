@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { User } from 'firebase/auth'
+import '../wealth.css'
 import { RushdCharacter } from './RushdCharacter'
 import { formatSar, getSpentPercentage } from '../lib/finance'
 import {

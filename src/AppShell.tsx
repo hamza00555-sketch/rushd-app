@@ -1,18 +1,25 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import App from './App'
 import { AuthScreen } from './components/AuthScreen'
 import { NotFoundScreen } from './components/AppErrorBoundary'
-import { HouseholdView } from './components/HouseholdView'
 import { Icon, type IconName } from './components/Icon'
-import { PromotionSimulator } from './components/PromotionSimulator'
-import { WealthPlanner } from './components/WealthPlanner'
 import { useAuthSession } from './hooks/useAuthSession'
 import { useDialog } from './hooks/useDialog'
 import { isFirebaseConfigured } from './lib/firebase'
 import { getFirebaseErrorMessage } from './lib/firebaseErrors'
 
 type LaunchTool = 'wealth' | 'promotion' | 'household'
+
+const HouseholdView = lazy(() => import('./components/HouseholdView').then((module) => ({
+  default: module.HouseholdView,
+})))
+const PromotionSimulator = lazy(() => import('./components/PromotionSimulator').then((module) => ({
+  default: module.PromotionSimulator,
+})))
+const WealthPlanner = lazy(() => import('./components/WealthPlanner').then((module) => ({
+  default: module.WealthPlanner,
+})))
 
 const toolCards: Array<{
   id: LaunchTool
@@ -151,15 +158,17 @@ export default function AppShell() {
               <span>خصوصيتك أولًا</span><h2 id="privacy-title">ما الذي يحفظه رُشد؟</h2>
               <p>يحفظ رُشد الاسم والبريد وخطط الأشهر والمصروفات والاستثمارات داخل Firebase. الراتب والمعاملات والمحافظ والأهداف وسيناريوهات الترقية خاصة بصاحب الحساب فقط.</p>
               <p>عند الاستيراد من راتبي، يقرأ رُشد النص المنسوخ فقط بعد ضغطك على زر الاستيراد، ويتحقق منه ثم يحفظ النسخة الشهرية داخل حسابك الخاص. لا يضع بياناتك في رابط ولا يرسلها إلى analytics.</p>
-              <p>بيانات البيت المشتركة تقتصر على ميزانية السوبرماركت وصندوق الأماني ودرجات احتياجها واحتياجات الأبناء وسجل النشاط، وتظهر حسب صلاحية عرض أو تعديل أو بدون وصول.</p>
+              <p>بيانات البيت المشتركة تقتصر على ميزانية السوبرماركت وصندوق الأماني وحالات تمويلها واحتياجات الأبناء وسجل النشاط، وتظهر حسب صلاحية عرض أو تعديل أو بدون وصول.</p>
               <small>لا يرسل رُشد راتبك أو بريدك إلى سجلات console أو أدوات تحليلات.</small>
             </motion.section>
           </motion.div>
         )}
 
-        {householdOpen && <HouseholdView user={user} onClose={() => setHouseholdOpen(false)} />}
-        {promotionOpen && <PromotionSimulator user={user} onClose={() => setPromotionOpen(false)} />}
-        {wealthOpen && <WealthPlanner user={user} onClose={() => setWealthOpen(false)} />}
+        <Suspense fallback={<div className="tool-loading-overlay" role="status"><span className="live-dot" /><p>جاري فتح الأداة…</p></div>}>
+          {householdOpen && <HouseholdView user={user} onClose={() => setHouseholdOpen(false)} />}
+          {promotionOpen && <PromotionSimulator user={user} onClose={() => setPromotionOpen(false)} />}
+          {wealthOpen && <WealthPlanner user={user} onClose={() => setWealthOpen(false)} />}
+        </Suspense>
       </AnimatePresence>
     </>
   )

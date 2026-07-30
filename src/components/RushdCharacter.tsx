@@ -47,7 +47,14 @@ export function RushdCharacter({
         }}
         whileTap={interactive ? { scale: 0.94 } : undefined}
       >
-        <img src="/brand/rushd-mascot-v3.png" alt="" width="1101" height="837" draggable="false" />
+        <img
+          src="/brand/rushd-mascot-v3.webp"
+          alt=""
+          width="720"
+          height="547"
+          decoding="async"
+          draggable="false"
+        />
         {mood === 'celebrate' && <span className="rushd-sparkles"><Icon name="spark" size={19} /></span>}
         {mood === 'thinking' && <span className="rushd-thought">؟</span>}
       </motion.button>

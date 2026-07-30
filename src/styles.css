@@ -133,4 +133,42 @@ p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
 @media (max-width: 380px) {
   .phone-app { padding-inline: 12px; }.hero-card { grid-template-columns: 1fr 105px; padding:18px; }.progress-ring{width:100px;height:100px}.metrics-grid{grid-template-columns:1fr}.character-dock{height:84px}.rushd-bubble{max-width:220px;font-size:12px}.insight-list{grid-template-columns:1fr}
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
+
+.transaction-row,
+.full-goal-card,
+.market-expense-row,
+.child-need-row,
+.activity-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+@media (max-width: 620px) {
+  .ambient { display: none; }
+
+  .phone-app *,
+  .launch-tools-trigger,
+  .launch-tools-backdrop,
+  .privacy-backdrop,
+  .wish-details-backdrop,
+  .household-overlay,
+  .promotion-overlay,
+  .wealth-overlay,
+  .wealth-form-overlay,
+  .save-scenario-overlay {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .topbar { background: rgba(248, 243, 236, .98); }
+  .bottom-nav { background: rgba(255, 255, 255, .97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

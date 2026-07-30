@@ -76,7 +76,8 @@ try {
       ownerName: 'Owner',
       saved: 0,
       deadline: 'No deadline',
-      needPercent: 5,
+      fundingLevel: 'primary',
+      releasedBalance: 0,
     })
     await setDoc(doc(adminDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`), {
       kind: 'fund',
@@ -282,11 +283,11 @@ try {
     permissions: { market: 'edit', wishes: 'edit', noor: 'edit' },
   }))
   await assertSucceeds(updateDoc(memberWishReference, {
-    needPercent: 10,
+    fundingLevel: 'paused',
     updatedBy: memberId,
   }))
   await assertFails(updateDoc(memberWishReference, {
-    needPercent: 7,
+    fundingLevel: 'urgent',
     updatedBy: memberId,
   }))
   await assertSucceeds(setDoc(doc(memberDb, 'households', householdId, 'wishes', 'member-wish'), {
@@ -296,7 +297,8 @@ try {
     target: 900,
     saved: 0,
     deadline: 'No deadline',
-    needPercent: 2,
+    fundingLevel: 'calm',
+    releasedBalance: 0,
     ownerId: memberId,
   }))
   await assertSucceeds(setDoc(doc(memberDb, 'households', householdId, 'wishes', 'wishes-budget-2026-08'), {
@@ -308,6 +310,18 @@ try {
     allocatedAmount: 60,
     reserveAmount: 540,
     ownerId: memberId,
+    updatedBy: memberId,
+  }))
+  await assertSucceeds(updateDoc(memberWishesBudgetReference, {
+    allocations: {},
+    allocatedAmount: 0,
+    reserveAmount: 700,
+    updatedBy: memberId,
+  }))
+  await assertSucceeds(updateDoc(memberWishReference, {
+    saved: 0,
+    fundingLevel: 'paused',
+    releasedBalance: 0,
     updatedBy: memberId,
   }))
   await assertFails(setDoc(doc(memberDb, 'households', householdId, 'wishes', 'invalid-fund'), {

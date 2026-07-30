@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import type { User } from 'firebase/auth'
 import { Icon, type IconName } from './components/Icon'
 import { RushdCharacter } from './components/RushdCharacter'
+import { WishesView } from './components/WishesView'
 import { useDialog } from './hooks/useDialog'
 import { useSharedModules, type SharedSyncStatus } from './hooks/useSharedModules'
 import { useMonthlyPlan, type RatibiSyncState } from './hooks/useMonthlyPlan'
@@ -37,9 +38,11 @@ import {
   MIN_MARKET_CYCLE_START_DAY,
 } from './lib/marketCycle'
 import {
+  getWishFundingCapacityError,
+  getWishFundingLevel,
   getWishCompletionForecast,
-  WISH_NEED_LEVELS,
-  type WishNeedPercent,
+  WISH_FUNDING_LEVELS,
+  type WishFundingLevel,
 } from './lib/wishesFund'
 
 type Tab = 'home' | 'month' | 'wishes' | 'children' | 'market'
@@ -413,7 +416,10 @@ function MonthView({
   )
 }
 
-function WishesView({
+/*
+ * الواجهة القديمة محفوظة مؤقتًا في هذا الالتزام كمرجع لترحيل بيانات الأماني.
+ * الواجهة الفعلية موجودة في components/WishesView.tsx.
+function LegacyWishesView({
   wishes,
   monthKey,
   setMonthKey,
@@ -766,6 +772,7 @@ function WishesView({
     </motion.main>
   )
 }
+*/
 
 function ChildrenNeedsView({
   needs,
@@ -1217,10 +1224,10 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
     icon: string
     target: number
     deadline: string
-    needPercent: WishNeedPercent
+    fundingLevel: WishFundingLevel
   }) => {
     await shared.addWish(input)
-    setMessage('تمت إضافة الأمنية وتوزيع دفعة الشهر عليها حسب احتياجها.')
+    setMessage('تمت إضافة الأمنية. تبدأ حصتها مع أول دفعة جديدة حسب حالتها.')
   }
 
   const saveWishesBudget = async (amount: number) => {
@@ -1228,11 +1235,20 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
     setMessage(`تمت إضافة ${formatMarketSar(amount)} ريال لصندوق الأماني وتوزيعها.`)
   }
 
-  const updateWishNeedLevel = async (wishId: string, needPercent: WishNeedPercent) => {
-    await shared.updateWishNeedLevel(wishId, needPercent)
-    setMessage(wishesBudget
-      ? `تحدث احتياج الأمنية إلى ${needPercent}% وأعدنا توزيع دفعة الشهر.`
-      : `تحدث احتياج الأمنية إلى ${needPercent}% وسيُطبق على الدفعة القادمة.`)
+  const updateWishFundingLevel = async (wishId: string, fundingLevel: WishFundingLevel) => {
+    await shared.updateWishFundingLevel(wishId, fundingLevel)
+    const funding = getWishFundingLevel(fundingLevel)
+    setMessage(fundingLevel === 'paused'
+      ? 'تم تعليق الأمنية. رصيدها محفوظ ولن تستقبل دفعات جديدة.'
+      : `صارت الأمنية ${funding.label}، وسيُطبق ذلك على الدفعات الجديدة فقط.`)
+  }
+
+  const resetWishSavings = async (wishId: string) => {
+    const returnedAmount = await shared.resetWishSavings(wishId)
+    setMessage(returnedAmount > 0
+      ? `عاد ${formatMarketSar(returnedAmount)} ريال إلى الرصيد غير الموزع.`
+      : 'رصيد الأمنية صفر أصلًا.')
+    return returnedAmount
   }
 
   const addChildNeed = async (input: { title: string; childName: string; estimatedCost: number }) => {
@@ -1336,7 +1352,8 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
               onSaveBudget={saveWishesBudget}
               canManageBudget={shared.permissions.wishes === 'edit'}
               onAdd={addWish}
-              onUpdateNeed={updateWishNeedLevel}
+              onUpdateFunding={updateWishFundingLevel}
+              onReset={resetWishSavings}
               access={shared.permissions.wishes}
               syncStatus={shared.status}
               syncError={shared.error}
