@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import type { User } from 'firebase/auth'
 import { Icon, type IconName } from './components/Icon'
 import { RushdCharacter } from './components/RushdCharacter'
+import { useDialog } from './hooks/useDialog'
 import { useSharedModules, type SharedSyncStatus } from './hooks/useSharedModules'
 import { useMonthlyPlan, type RatibiSyncState } from './hooks/useMonthlyPlan'
 import { formatSar, getSpentPercentage } from './lib/finance'
@@ -35,6 +36,11 @@ import {
   MAX_MARKET_CYCLE_START_DAY,
   MIN_MARKET_CYCLE_START_DAY,
 } from './lib/marketCycle'
+import {
+  getWishCompletionForecast,
+  WISH_NEED_LEVELS,
+  type WishNeedPercent,
+} from './lib/wishesFund'
 
 type Tab = 'home' | 'month' | 'wishes' | 'children' | 'market'
 
@@ -412,9 +418,11 @@ function WishesView({
   monthKey,
   setMonthKey,
   budget,
+  reserveBalance,
   onSaveBudget,
   canManageBudget,
   onAdd,
+  onUpdateNeed,
   access,
   syncStatus,
   syncError,
@@ -423,9 +431,17 @@ function WishesView({
   monthKey: string
   setMonthKey: (monthKey: string) => void
   budget: SharedWishesBudget | null
+  reserveBalance: number
   onSaveBudget: (amount: number) => Promise<void>
   canManageBudget: boolean
-  onAdd: (input: { title: string; icon: string; target: number; deadline: string }) => Promise<void>
+  onAdd: (input: {
+    title: string
+    icon: string
+    target: number
+    deadline: string
+    needPercent: WishNeedPercent
+  }) => Promise<void>
+  onUpdateNeed: (wishId: string, needPercent: WishNeedPercent) => Promise<void>
   access: AccessLevel
   syncStatus: SharedSyncStatus
   syncError: string
@@ -435,24 +451,43 @@ function WishesView({
   const [title, setTitle] = useState('')
   const [target, setTarget] = useState('')
   const [deadline, setDeadline] = useState('')
+  const [needPercent, setNeedPercent] = useState<WishNeedPercent>(3)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [budgetFormOpen, setBudgetFormOpen] = useState(canManageBudget && !budget)
+  const [budgetFormOpen, setBudgetFormOpen] = useState(false)
   const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.amount) : '')
   const [budgetBusy, setBudgetBusy] = useState(false)
   const [budgetError, setBudgetError] = useState('')
+  const [selectedWishId, setSelectedWishId] = useState<string | null>(null)
+  const [needDraft, setNeedDraft] = useState<WishNeedPercent>(3)
+  const [detailsBusy, setDetailsBusy] = useState(false)
+  const [detailsError, setDetailsError] = useState('')
+  const selectedWish = wishes.find((wish) => wish.id === selectedWishId) ?? null
+  const detailsRef = useDialog<HTMLElement>(() => setSelectedWishId(null), Boolean(selectedWish))
+  const activeNeedPercentTotal = wishes
+    .filter((wish) => wish.saved < wish.target)
+    .reduce((total, wish) => total + wish.needPercent, 0)
+  const distributedProgress = budget
+    ? getSpentPercentage(budget.allocatedAmount, budget.amount)
+    : 0
 
   useEffect(() => {
     setBudgetDraft(budget ? String(budget.amount) : '')
-    setBudgetFormOpen(canManageBudget && !budget)
+    setBudgetFormOpen(false)
     setBudgetError('')
   }, [budget?.amount, canManageBudget, monthKey])
+
+  useEffect(() => {
+    if (!selectedWish) return
+    setNeedDraft(selectedWish.needPercent)
+    setDetailsError('')
+  }, [selectedWish])
 
   const submitBudget = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const amount = parseCurrencyInput(budgetDraft)
     if (!Number.isFinite(amount) || amount <= 0) {
-      setBudgetError('اكتب ميزانية أماني شهرية صحيحة.')
+      setBudgetError('اكتب مبلغ الدفعة التي أضفتها لصندوق الأماني.')
       return
     }
     setBudgetBusy(true)
@@ -461,7 +496,7 @@ function WishesView({
       await onSaveBudget(amount)
       setBudgetFormOpen(false)
     } catch (cause: unknown) {
-      setBudgetError(cause instanceof Error ? cause.message : 'تعذر حفظ ميزانية الأماني.')
+      setBudgetError(cause instanceof Error ? cause.message : 'تعذر حفظ دفعة صندوق الأماني.')
     } finally {
       setBudgetBusy(false)
     }
@@ -477,15 +512,42 @@ function WishesView({
     setBusy(true)
     setError('')
     try {
-      await onAdd({ title: title.trim(), icon: '♡', target: amount, deadline: deadline.trim() || 'بدون موعد' })
+      await onAdd({
+        title: title.trim(),
+        icon: '♡',
+        target: amount,
+        deadline: deadline.trim() || 'بدون موعد',
+        needPercent,
+      })
       setTitle('')
       setTarget('')
       setDeadline('')
+      setNeedPercent(3)
       setFormOpen(false)
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'تعذرت إضافة الأمنية.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const openWishDetails = (wish: SharedWish) => {
+    setSelectedWishId(wish.id)
+    setNeedDraft(wish.needPercent)
+    setDetailsError('')
+  }
+
+  const submitNeedLevel = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedWish) return
+    setDetailsBusy(true)
+    setDetailsError('')
+    try {
+      await onUpdateNeed(selectedWish.id, needDraft)
+    } catch (cause: unknown) {
+      setDetailsError(cause instanceof Error ? cause.message : 'تعذر تعديل درجة الاحتياج.')
+    } finally {
+      setDetailsBusy(false)
     }
   }
 
@@ -504,53 +566,68 @@ function WishesView({
         />
         <span className="illustrated-scene-shade" aria-hidden="true" />
         <div className="illustrated-intro-copy">
-          <span>أماني رُشد</span>
-          <h1>حوّل الأشياء اللي تتمناها إلى خطة واضحة.</h1>
-          <p>الأماني المشتركة فقط تظهر لأعضاء البيت. أهدافك الخاصة تبقى لك.</p>
+          <span>صندوق أماني رُشد</span>
+          <h1>كل دفعة صغيرة تقرّب الشيء المناسب في وقته المناسب.</h1>
+          <p>رُشد يوزّع دفعة الشهر حسب احتياج كل أمنية، ويترك الباقي محفوظًا بدون استعجال.</p>
         </div>
       </section>
       {access !== 'none' && (
         <section className="wish-monthly-budget">
           <div className="wish-budget-month-row">
             <div>
-              <span>ميزانية الأماني</span>
-              <small>{formatMonthLabel(monthKey)} · تُدار من رُشد</small>
+              <span>دفعة صندوق الأماني</span>
+              <small>{formatMonthLabel(monthKey)} · مستقلة عن راتبي</small>
             </div>
-            <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="شهر ميزانية الأماني" />
+            <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="شهر صندوق الأماني" />
           </div>
           {budget ? (
             <div className="wish-budget-value">
+              <span>المبلغ المضاف هذا الشهر</span>
               <strong>{formatMarketSar(budget.amount)} <small>ريال</small></strong>
+              <div className="wish-fund-progress" aria-label={`وُزّع ${distributedProgress}% من دفعة هذا الشهر`}>
+                <motion.i initial={{ width: 0 }} animate={{ width: `${distributedProgress}%` }} />
+              </div>
+              <div className="wish-fund-stats">
+                <article><span>توزّع على الأماني</span><b>{formatMarketSar(budget.allocatedAmount)} ريال</b></article>
+                <article><span>ينتظر وقته</span><b>{formatMarketSar(budget.reserveAmount)} ريال</b></article>
+              </div>
               <p>{canManageBudget
-                ? `آخر تعديل بواسطة ${budget.updatedByName} · ${budget.updatedAtLabel}`
-                : `حددها ${budget.updatedByName} · وتتحدث عندك تلقائيًا`}</p>
+                ? `آخر توزيع بواسطة ${budget.updatedByName} · ${budget.updatedAtLabel}`
+                : `أضافها ${budget.updatedByName} · وتتحدث عندك تلقائيًا`}</p>
             </div>
           ) : (
             <div className="wish-budget-empty">
-              <strong>{canManageBudget ? 'حدّد ميزانية الأماني لهذا الشهر' : 'بانتظار تحديد الميزانية'}</strong>
+              <strong>{canManageBudget ? 'ما أضفت دفعة لهذا الشهر' : 'بانتظار دفعة هذا الشهر'}</strong>
               <p>{canManageBudget
-                ? 'هذه الميزانية مستقلة عن تطبيق راتبي، وتقدر تعدّلها من هنا في أي وقت.'
-                : 'أول ما يحددها شخص عنده صلاحية تعديل الأماني ستظهر لك مباشرة.'}</p>
+                ? 'لما تودع مبلغًا في حساب الأماني اضغط «إضافة دفعة الشهر»، ورُشد يتولى التوزيع.'
+                : 'أول ما يضيفها شخص عنده صلاحية تعديل الأماني ستظهر لك مباشرة.'}</p>
             </div>
           )}
+          <div className="wish-reserve-balance">
+            <div><span>الرصيد غير الموزع في صندوق رُشد</span><strong>{formatMarketSar(reserveBalance)} ريال</strong></div>
+            <small>يبقى محفوظًا؛ رُشد لا يجبركم على توزيعه قبل ما يحين وقت الأماني.</small>
+          </div>
           {budget && canManageBudget && !budgetFormOpen && (
-            <button type="button" className="secondary-button wish-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الأماني</button>
+            <button type="button" className="secondary-button wish-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل أو إعادة توزيع دفعة الشهر</button>
+          )}
+          {!budget && canManageBudget && !budgetFormOpen && (
+            <button type="button" className="primary-button wish-add-fund" onClick={() => setBudgetFormOpen(true)}><Icon name="plus" size={17} /> إضافة دفعة الشهر</button>
           )}
           {canManageBudget && budgetFormOpen && (
             <form className="shared-entry-form wish-budget-form" onSubmit={submitBudget}>
               <div className="shared-form-heading">
-                <div><strong>{budget ? 'تعديل الميزانية' : 'ميزانية الأماني الشهرية'}</strong><small>هذا الإعداد من رُشد ولا يتأثر بمزامنة راتبي</small></div>
-                {budget && <button type="button" onClick={() => setBudgetFormOpen(false)} aria-label="إلغاء تعديل ميزانية الأماني">×</button>}
+                <div><strong>{budget ? 'تعديل دفعة الشهر' : 'إضافة دفعة الشهر'}</strong><small>اكتب المبلغ الذي أودعته فعلًا في صندوق الأماني</small></div>
+                <button type="button" onClick={() => setBudgetFormOpen(false)} aria-label="إلغاء إضافة الدفعة">×</button>
               </div>
-              <label className="market-form-label"><span>الميزانية بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 500" aria-label="ميزانية الأماني الشهرية" /></label>
+              <label className="market-form-label"><span>المبلغ المضاف بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 500" aria-label="دفعة صندوق الأماني الشهرية" /></label>
               {budgetError && <div className="inline-form-error" role="alert">{budgetError}</div>}
-              <button type="submit" disabled={budgetBusy}>{budgetBusy ? 'جاري الحفظ…' : 'اعتماد ميزانية الأماني'}</button>
+              <button type="submit" disabled={budgetBusy}>{budgetBusy ? 'جاري التوزيع…' : 'حفظ وتوزيع الدفعة'}</button>
             </form>
           )}
         </section>
       )}
       {!canManageBudget && access !== 'none' && (
-        <section className="wish-budget-link-note member-share-note"><Icon name="users" size={18} /><div><strong>ما تحتاج تربط حسابك براتبي</strong><p>هذه الأماني تأتيك من مساحة العائلة حسب الصلاحية التي حددها رب الأسرة.</p></div></section>
+        <section className="wish-budget-link-note member-share-note"><Icon name="users" size={18} /><div><strong>صندوق عائلي مشترك</strong><p>ما تحتاج تربط حسابك براتبي؛ الدفعات والتوزيع تصل من مساحة العائلة حسب صلاحيتك.</p></div></section>
       )}
       {access === 'none' ? (
         <section className="module-empty-state"><span><Icon name="lock" size={24} /></span><strong>هذه الوحدة خاصة</strong><p>مالك البيت لم يفعّل لك الوصول إلى الأماني المشتركة.</p></section>
@@ -560,7 +637,40 @@ function WishesView({
             {wishes.length === 0 && <section className="module-empty-state"><span><Icon name="heart" size={24} /></span><strong>ما عندكم أماني مشتركة بعد</strong><p>ابدأ بأول أمنية وشاركها مع العائلة.</p></section>}
             {wishes.map((wish, index) => {
               const value = getSpentPercentage(wish.saved, wish.target)
-              return <motion.article className="full-goal-card wish-card" key={wish.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}><span className="goal-emoji"><Icon name="heart" size={25} /></span><div><div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div><p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال · {wish.owner}</p><ProgressBar value={value}/><small>{wish.deadline}</small></div></motion.article>
+              const forecast = getWishCompletionForecast({
+                target: wish.target,
+                saved: wish.saved,
+                monthlyFundAmount: budget?.amount ?? 0,
+                needPercent: wish.needPercent,
+                activeNeedPercentTotal,
+                monthKey,
+              })
+              return (
+                <motion.button
+                  type="button"
+                  className="full-goal-card wish-card"
+                  key={wish.id}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.08 }}
+                  whileTap={{ scale: .985 }}
+                  onClick={() => openWishDetails(wish)}
+                  aria-label={`تفاصيل أمنية ${wish.title}`}
+                  aria-haspopup="dialog"
+                >
+                  <span className="goal-emoji"><Icon name="heart" size={25} /></span>
+                  <div>
+                    <div className="wish-heading"><h2>{wish.title}</h2><b>{value}%</b></div>
+                    <p>{formatSar(wish.saved)} من {formatSar(wish.target)} ريال · {wish.owner}</p>
+                    <ProgressBar value={value}/>
+                    <div className="wish-card-meta">
+                      <span>{wish.needPercent}% · {wish.needLabel}</span>
+                      <small>{forecast ? forecast.label : 'أضف دفعة ليظهر الموعد المتوقع'}</small>
+                    </div>
+                    {wish.currentMonthAllocation > 0 && <em>+{formatMarketSar(wish.currentMonthAllocation)} ريال من دفعة هذا الشهر</em>}
+                  </div>
+                </motion.button>
+              )
             })}
           </div>
           {access === 'edit' && !formOpen && <button type="button" className="primary-button" onClick={() => setFormOpen(true)}><Icon name="plus" size={17} /> إضافة أمنية مشتركة</button>}
@@ -571,6 +681,12 @@ function WishesView({
               <input data-autofocus placeholder="اسم الأمنية" value={title} onChange={(event) => setTitle(event.target.value)} />
               <input inputMode="decimal" placeholder="المبلغ المستهدف" value={target} onChange={(event) => setTarget(event.target.value)} />
               <input placeholder="الموعد أو المدة — اختياري" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
+              <label className="wish-need-select">
+                <span>درجة الاحتياج الآن</span>
+                <select value={needPercent} onChange={(event) => setNeedPercent(Number(event.target.value) as WishNeedPercent)}>
+                  {WISH_NEED_LEVELS.map((level) => <option value={level.percent} key={level.percent}>{level.percent}% · {level.label}</option>)}
+                </select>
+              </label>
               {error && <div className="inline-form-error" role="alert">{error}</div>}
               <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : 'حفظ الأمنية'}</button>
             </form>
@@ -578,6 +694,75 @@ function WishesView({
         </>
       )}
       <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
+      <AnimatePresence>
+        {selectedWish && (
+          <motion.div className="wish-details-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedWishId(null)}>
+            <motion.section
+              ref={detailsRef}
+              className="wish-details-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="wish-details-title"
+              tabIndex={-1}
+              initial={{ y: 80, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 80, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 330, damping: 31 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="wish-details-handle" />
+              <header>
+                <div><span>تفاصيل الأمنية</span><h2 id="wish-details-title">{selectedWish.title}</h2></div>
+                <button type="button" data-autofocus onClick={() => setSelectedWishId(null)} aria-label="إغلاق تفاصيل الأمنية"><Icon name="close" size={20} /></button>
+              </header>
+              <div className="wish-details-progress">
+                <strong>{formatMarketSar(selectedWish.saved)} <small>من {formatMarketSar(selectedWish.target)} ريال</small></strong>
+                <ProgressBar value={getSpentPercentage(selectedWish.saved, selectedWish.target)} />
+                <p>{selectedWish.deadline} · أضافها {selectedWish.owner}</p>
+              </div>
+              {(() => {
+                const forecast = getWishCompletionForecast({
+                  target: selectedWish.target,
+                  saved: selectedWish.saved,
+                  monthlyFundAmount: budget?.amount ?? 0,
+                  needPercent: selectedWish.needPercent,
+                  activeNeedPercentTotal,
+                  monthKey,
+                })
+                return (
+                  <div className="wish-forecast-card">
+                    <span><Icon name="clock" size={19} /></span>
+                    <div><small>موعد الوصول المتوقع</small><strong>{forecast?.label ?? 'يظهر بعد إضافة دفعة شهرية'}</strong><p>{forecast && forecast.monthlyShare > 0 ? `على وتيرة ${formatMarketSar(forecast.monthlyShare)} ريال كل شهر` : 'نحتاج دفعة شهرية حتى نحسب الوتيرة.'}</p></div>
+                  </div>
+                )
+              })()}
+              {canManageBudget ? (
+                <form className="wish-need-form" onSubmit={submitNeedLevel}>
+                  <div><span>درجة الاحتياج</span><h3>كم نستعجل على هذه الأمنية؟</h3><p>النسبة هي حصتها من كل دفعة. الباقي يبقى في صندوق رُشد.</p></div>
+                  <div className="wish-need-options">
+                    {WISH_NEED_LEVELS.map((level) => (
+                      <button
+                        type="button"
+                        className={needDraft === level.percent ? 'active' : ''}
+                        onClick={() => setNeedDraft(level.percent)}
+                        aria-pressed={needDraft === level.percent}
+                        key={level.percent}
+                      >
+                        <b>{level.percent}%</b><span>{level.label}</span><small>{level.description}</small>
+                      </button>
+                    ))}
+                  </div>
+                  {budget && <small className="wish-rebalance-note">الحفظ يعيد توزيع دفعة {formatMonthLabel(monthKey)} حسب الدرجات الجديدة.</small>}
+                  {detailsError && <div className="inline-form-error" role="alert">{detailsError}</div>}
+                  <button type="submit" className="wish-details-save" disabled={detailsBusy || needDraft === selectedWish.needPercent}>{detailsBusy ? 'جاري إعادة التوزيع…' : 'حفظ درجة الاحتياج'}</button>
+                </form>
+              ) : (
+                <div className="wish-view-need"><span>درجة الاحتياج الحالية</span><strong>{selectedWish.needPercent}% · {selectedWish.needLabel}</strong><p>صلاحيتك عرض فقط، لذلك لا يمكنك تغيير التوزيع.</p></div>
+              )}
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.main>
   )
 }
@@ -1027,14 +1212,27 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
     setMessage(`وصلت بيانات ${formatMonthLabel(bundle.month)} من راتبي ورتّبتها لك.`)
   }
 
-  const addWish = async (input: { title: string; icon: string; target: number; deadline: string }) => {
+  const addWish = async (input: {
+    title: string
+    icon: string
+    target: number
+    deadline: string
+    needPercent: WishNeedPercent
+  }) => {
     await shared.addWish(input)
-    setMessage('تمت إضافة الأمنية ومزامنتها مع البيت.')
+    setMessage('تمت إضافة الأمنية وتوزيع دفعة الشهر عليها حسب احتياجها.')
   }
 
   const saveWishesBudget = async (amount: number) => {
     await shared.saveWishesBudget(amount)
-    setMessage(`تم اعتماد ميزانية الأماني: ${formatMarketSar(amount)} ريال.`)
+    setMessage(`تمت إضافة ${formatMarketSar(amount)} ريال لصندوق الأماني وتوزيعها.`)
+  }
+
+  const updateWishNeedLevel = async (wishId: string, needPercent: WishNeedPercent) => {
+    await shared.updateWishNeedLevel(wishId, needPercent)
+    setMessage(wishesBudget
+      ? `تحدث احتياج الأمنية إلى ${needPercent}% وأعدنا توزيع دفعة الشهر.`
+      : `تحدث احتياج الأمنية إلى ${needPercent}% وسيُطبق على الدفعة القادمة.`)
   }
 
   const addChildNeed = async (input: { title: string; childName: string; estimatedCost: number }) => {
@@ -1134,9 +1332,11 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
               monthKey={wishesMonthKey}
               setMonthKey={setWishesMonthKey}
               budget={wishesBudget}
+              reserveBalance={shared.wishesReserveBalance}
               onSaveBudget={saveWishesBudget}
               canManageBudget={shared.permissions.wishes === 'edit'}
               onAdd={addWish}
+              onUpdateNeed={updateWishNeedLevel}
               access={shared.permissions.wishes}
               syncStatus={shared.status}
               syncError={shared.error}

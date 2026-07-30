@@ -35,6 +35,13 @@ import {
 import { auth, authPersistenceReady, db } from './firebase'
 import { ARABIC_GREGORIAN_LOCALE } from './locale'
 import { normalizeMarketCycleStartDay } from './marketCycle'
+import {
+  distributeWishesFund,
+  getWishNeedLevel,
+  normalizeWishNeedPercent,
+  roundMoney,
+  type WishNeedPercent,
+} from './wishesFund'
 
 export type SharedWish = {
   id: string
@@ -44,11 +51,16 @@ export type SharedWish = {
   target: number
   deadline: string
   owner: string
+  needPercent: WishNeedPercent
+  needLabel: string
+  currentMonthAllocation: number
 }
 
 export type SharedWishesBudget = {
   monthKey: string
   amount: number
+  allocatedAmount: number
+  reserveAmount: number
   updatedByName: string
   updatedAtLabel: string
 }
@@ -84,6 +96,7 @@ export type SharedWorkspaceData = {
   marketCycleStartDay: number
   wishes: SharedWish[]
   wishesBudget: SharedWishesBudget | null
+  wishesReserveBalance: number
   marketBudget: SharedMarketBudget | null
   marketExpenses: SharedMarketExpense[]
   childNeeds: SharedChildNeed[]
@@ -406,11 +419,35 @@ export const loadSharedWorkspaceData = async (
   ])
 
   const wishesDocuments = wishesSnapshot?.docs ?? []
-  const wishesBudgetDocument = wishesDocuments.find((snapshot) => {
+  const wishesFundDocuments = wishesDocuments.filter((snapshot) => {
     const data = snapshot.data()
-    return data.kind === 'budget' && data.monthKey === wishesMonthKey
+    return data.kind === 'fund' || data.kind === 'budget'
   })
+  const wishesBudgetDocument = wishesFundDocuments.find(
+    (snapshot) => snapshot.data().monthKey === wishesMonthKey,
+  )
   const wishesBudgetData = wishesBudgetDocument?.data()
+  const wishesReserveBalance = roundMoney(wishesFundDocuments.reduce((total, snapshot) => {
+    const fund = snapshot.data()
+    const amount = Number(fund.amount ?? fund.budget ?? 0)
+    const reserve = Number(fund.reserveAmount)
+    return total + (Number.isFinite(reserve) ? Math.max(0, reserve) : Math.max(0, amount))
+  }, 0))
+  const allocatedByWish = new Map<string, number>()
+  wishesFundDocuments.forEach((snapshot) => {
+    const allocations = snapshot.data().allocations
+    if (!allocations || typeof allocations !== 'object' || Array.isArray(allocations)) return
+    Object.entries(allocations as Record<string, unknown>).forEach(([wishId, allocation]) => {
+      const amount = Math.max(0, Number(allocation || 0))
+      if (!Number.isFinite(amount)) return
+      allocatedByWish.set(wishId, roundMoney((allocatedByWish.get(wishId) ?? 0) + amount))
+    })
+  })
+  const currentMonthAllocations = wishesBudgetData?.allocations
+    && typeof wishesBudgetData.allocations === 'object'
+    && !Array.isArray(wishesBudgetData.allocations)
+    ? wishesBudgetData.allocations as Record<string, unknown>
+    : {}
   const marketDocuments = marketSnapshot?.docs ?? []
   const marketBudgetDocument = marketDocuments.find((snapshot) => {
     const data = snapshot.data()
@@ -446,12 +483,23 @@ export const loadSharedWorkspaceData = async (
     isOwner,
     marketCycleStartDay: normalizeMarketCycleStartDay(household.marketCycleStartDay),
     permissions,
-    wishesBudget: wishesBudgetData && Number(wishesBudgetData.budget) > 0 ? {
+    wishesBudget: wishesBudgetData && Number(wishesBudgetData.amount ?? wishesBudgetData.budget) > 0 ? {
       monthKey: wishesMonthKey,
-      amount: Number(wishesBudgetData.budget),
+      amount: Number(wishesBudgetData.amount ?? wishesBudgetData.budget),
+      allocatedAmount: Math.max(0, Number(wishesBudgetData.allocatedAmount || 0)),
+      reserveAmount: Math.max(
+        0,
+        Number(
+          wishesBudgetData.reserveAmount
+          ?? wishesBudgetData.amount
+          ?? wishesBudgetData.budget
+          ?? 0,
+        ),
+      ),
       updatedByName: String(wishesBudgetData.updatedByName || wishesBudgetData.ownerName || 'عضو رُشد'),
-      updatedAtLabel: formatActivityTime(wishesBudgetData.updatedAt),
+      updatedAtLabel: formatActivityTime(wishesBudgetData.updatedAt || wishesBudgetData.createdAt),
     } : null,
+    wishesReserveBalance,
     marketBudget: marketBudgetData && Number(marketBudgetData.budget) > 0 ? {
       monthKey: marketMonthKey,
       amount: Number(marketBudgetData.budget),
@@ -470,16 +518,23 @@ export const loadSharedWorkspaceData = async (
         addedByName: String(need.addedByName || 'عضو رُشد'),
       }
     }),
-    wishes: wishesDocuments.filter((snapshot) => snapshot.data().kind !== 'budget').map((snapshot) => {
+    wishes: wishesDocuments.filter((snapshot) => {
+      const kind = snapshot.data().kind
+      return kind !== 'budget' && kind !== 'fund'
+    }).map((snapshot) => {
       const wish = snapshot.data()
+      const needLevel = getWishNeedLevel(wish.needPercent)
       return {
         id: snapshot.id,
         title: String(wish.title || ''),
         icon: String(wish.icon || '♡'),
-        saved: Number(wish.saved || 0),
-        target: Number(wish.target || 0),
+        saved: roundMoney((Number(wish.saved) || 0) + (allocatedByWish.get(snapshot.id) ?? 0)),
+        target: Math.max(0, Number(wish.target) || 0),
         deadline: String(wish.deadline || 'بدون موعد'),
         owner: String(wish.ownerName || 'العائلة'),
+        needPercent: needLevel.percent,
+        needLabel: needLevel.label,
+        currentMonthAllocation: Math.max(0, Number(currentMonthAllocations[snapshot.id] || 0)),
       }
     }),
   }
@@ -491,33 +546,67 @@ export const saveSharedWishesBudget = async (
   monthKey: string,
   budget: number,
 ) => {
-  if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new Error('شهر ميزانية الأماني غير صالح.')
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new Error('شهر صندوق الأماني غير صالح.')
   const reference = doc(db, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
-  const snapshot = await getDoc(reference)
-  const amount = Math.max(0.01, Math.round(budget * 100) / 100)
-  if (snapshot.exists()) {
-    await updateDoc(reference, {
-      kind: 'budget',
-      monthKey,
-      budget: amount,
-      updatedBy: user.uid,
-      updatedByName: getUserName(user),
-      updatedAt: serverTimestamp(),
+  const [snapshot, wishesSnapshot] = await Promise.all([
+    getDoc(reference),
+    getDocs(collection(db, 'households', householdId, 'wishes')),
+  ])
+  const amount = Math.max(0.01, roundMoney(budget))
+  const currentFundData = snapshot.exists() ? snapshot.data() : null
+  const otherAllocations = new Map<string, number>()
+
+  wishesSnapshot.docs.forEach((wishSnapshot) => {
+    if (wishSnapshot.id === reference.id) return
+    const data = wishSnapshot.data()
+    if (data.kind !== 'fund' && data.kind !== 'budget') return
+    const allocations = data.allocations
+    if (!allocations || typeof allocations !== 'object' || Array.isArray(allocations)) return
+    Object.entries(allocations as Record<string, unknown>).forEach(([wishId, allocation]) => {
+      const allocationAmount = Math.max(0, Number(allocation || 0))
+      if (!Number.isFinite(allocationAmount)) return
+      otherAllocations.set(
+        wishId,
+        roundMoney((otherAllocations.get(wishId) ?? 0) + allocationAmount),
+      )
     })
-  } else {
-    await setDoc(reference, {
-      kind: 'budget',
-      monthKey,
-      budget: amount,
-      ownerId: user.uid,
-      ownerName: getUserName(user),
-      updatedBy: user.uid,
-      updatedByName: getUserName(user),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-  }
-  await insertActivity(householdId, user, 'حدّد ميزانية الأماني', `${monthKey} · ${amount} ريال`)
+  })
+
+  const wishDocuments = wishesSnapshot.docs.filter((wishSnapshot) => {
+    const kind = wishSnapshot.data().kind
+    return kind !== 'fund' && kind !== 'budget'
+  })
+  const distribution = distributeWishesFund(amount, wishDocuments.map((wishSnapshot) => {
+    const wish = wishSnapshot.data()
+    return {
+      id: wishSnapshot.id,
+      target: Math.max(0, Number(wish.target) || 0),
+      saved: roundMoney((Number(wish.saved) || 0) + (otherAllocations.get(wishSnapshot.id) ?? 0)),
+      needPercent: normalizeWishNeedPercent(wish.needPercent),
+    }
+  }))
+
+  await setDoc(reference, {
+    kind: 'fund',
+    monthKey,
+    amount,
+    budget: amount,
+    allocations: distribution.allocations,
+    allocatedAmount: distribution.allocatedAmount,
+    reserveAmount: distribution.reserveAmount,
+    ownerId: String(currentFundData?.ownerId || user.uid),
+    ownerName: String(currentFundData?.ownerName || getUserName(user)),
+    updatedBy: user.uid,
+    updatedByName: getUserName(user),
+    createdAt: currentFundData?.createdAt || serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  await insertActivity(
+    householdId,
+    user,
+    snapshot.exists() ? 'أعاد توزيع دفعة الأماني' : 'أضاف دفعة لصندوق الأماني',
+    `${monthKey} · ${amount} ريال · المتبقي ${distribution.reserveAmount} ريال`,
+  )
 }
 
 export const saveSharedMarketBudget = async (
@@ -593,20 +682,52 @@ export const addSharedMarketExpense = async (
 export const addSharedWish = async (
   householdId: string,
   user: User,
-  input: { title: string; icon: string; target: number; deadline: string },
+  input: {
+    title: string
+    icon: string
+    target: number
+    deadline: string
+    needPercent: WishNeedPercent
+  },
 ) => {
   await addDoc(collection(db, 'households', householdId, 'wishes'), {
+    kind: 'wish',
     title: input.title,
     icon: input.icon,
     target: input.target,
     saved: 0,
     deadline: input.deadline,
+    needPercent: normalizeWishNeedPercent(input.needPercent),
     ownerId: user.uid,
     ownerName: getUserName(user),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
   await insertActivity(householdId, user, 'أضاف أمنية مشتركة', input.title)
+}
+
+export const updateSharedWishNeedLevel = async (
+  householdId: string,
+  user: User,
+  wishId: string,
+  needPercentInput: number,
+) => {
+  const needPercent = normalizeWishNeedPercent(needPercentInput)
+  if (needPercent !== needPercentInput) throw new Error('اختر درجة احتياج صحيحة.')
+  const needLevel = getWishNeedLevel(needPercent)
+  await updateDoc(doc(db, 'households', householdId, 'wishes', wishId), {
+    kind: 'wish',
+    needPercent,
+    updatedBy: user.uid,
+    updatedByName: getUserName(user),
+    updatedAt: serverTimestamp(),
+  })
+  await insertActivity(
+    householdId,
+    user,
+    'عدّل احتياج أمنية',
+    `${needLevel.label} · ${needPercent}%`,
+  )
 }
 
 export const addSharedChildNeed = async (

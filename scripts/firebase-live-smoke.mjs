@@ -225,20 +225,26 @@ try {
     updatedAt: serverTimestamp(),
   })
   await setDoc(doc(ownerDb, 'households', householdId, 'wishes', wishId), {
+    kind: 'wish',
     title: 'Live smoke wish',
     icon: '◎',
     target: 1000,
     saved: 0,
     deadline: '2099',
+    needPercent: 5,
     ownerId: ownerUid,
     ownerName: 'Owner',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
   await setDoc(doc(ownerDb, 'households', householdId, 'wishes', wishBudgetId), {
-    kind: 'budget',
+    kind: 'fund',
     monthKey,
+    amount: 600,
     budget: 600,
+    allocations: { [wishId]: 30 },
+    allocatedAmount: 30,
+    reserveAmount: 570,
     ownerId: ownerUid,
     ownerName: 'Owner',
     updatedBy: ownerUid,
@@ -357,7 +363,11 @@ try {
     'A view-only household member could change the wishes budget.',
   )
   await updateDoc(doc(ownerDb, 'households', householdId, 'wishes', wishBudgetId), {
+    amount: 700,
     budget: 700,
+    allocations: { [wishId]: 35 },
+    allocatedAmount: 35,
+    reserveAmount: 665,
     updatedBy: ownerUid,
     updatedByName: 'Owner',
     updatedAt: serverTimestamp(),
@@ -374,6 +384,7 @@ try {
   assert.equal(marketExpenseSnapshot.data()?.amount, 125.75)
   const wishSnapshot = await getDoc(doc(memberDb, 'households', householdId, 'wishes', wishId))
   assert.equal(wishSnapshot.data()?.title, 'Live smoke wish')
+  assert.equal(wishSnapshot.data()?.needPercent, 5)
   const childNeedReference = doc(memberDb, 'households', householdId, 'childrenNeeds', childNeedId)
   assert.equal((await getDoc(childNeedReference)).data()?.childName, 'Noor')
   await updateDoc(childNeedReference, {

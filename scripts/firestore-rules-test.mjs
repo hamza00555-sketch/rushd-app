@@ -68,14 +68,24 @@ try {
       addedBy: ownerId,
     })
     await setDoc(doc(adminDb, 'households', householdId, 'wishes', 'trip'), {
+      kind: 'wish',
       title: 'Trip',
+      icon: '♡',
+      target: 2000,
       ownerId,
+      ownerName: 'Owner',
       saved: 0,
+      deadline: 'No deadline',
+      needPercent: 5,
     })
     await setDoc(doc(adminDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`), {
-      kind: 'budget',
+      kind: 'fund',
       monthKey,
+      amount: 500,
       budget: 500,
+      allocations: { trip: 25 },
+      allocatedAmount: 25,
+      reserveAmount: 475,
       ownerId,
       updatedBy: ownerId,
       updatedByName: 'Owner',
@@ -254,13 +264,63 @@ try {
   const sharedWishesBudget = await assertSucceeds(getDoc(memberWishesBudgetReference))
   assert.equal(sharedWishesBudget.data()?.budget, 500)
   await assertFails(updateDoc(memberWishesBudgetReference, { budget: 700 }))
-  await assertSucceeds(updateDoc(ownerWishesBudgetReference, { budget: 700 }))
+  await assertSucceeds(updateDoc(ownerWishesBudgetReference, {
+    amount: 700,
+    budget: 700,
+    allocations: { trip: 35 },
+    allocatedAmount: 35,
+    reserveAmount: 665,
+    updatedBy: ownerId,
+  }))
   assert.equal(
     (await assertSucceeds(getDoc(memberWishesBudgetReference))).data()?.budget,
     700,
   )
   await assertSucceeds(getDoc(memberWishReference))
   await assertFails(updateDoc(memberWishReference, { saved: 100 }))
+  await assertSucceeds(updateDoc(doc(ownerDb, 'households', householdId, 'members', memberId), {
+    permissions: { market: 'edit', wishes: 'edit', noor: 'edit' },
+  }))
+  await assertSucceeds(updateDoc(memberWishReference, {
+    needPercent: 10,
+    updatedBy: memberId,
+  }))
+  await assertFails(updateDoc(memberWishReference, {
+    needPercent: 7,
+    updatedBy: memberId,
+  }))
+  await assertSucceeds(setDoc(doc(memberDb, 'households', householdId, 'wishes', 'member-wish'), {
+    kind: 'wish',
+    title: 'Coffee machine',
+    icon: '♡',
+    target: 900,
+    saved: 0,
+    deadline: 'No deadline',
+    needPercent: 2,
+    ownerId: memberId,
+  }))
+  await assertSucceeds(setDoc(doc(memberDb, 'households', householdId, 'wishes', 'wishes-budget-2026-08'), {
+    kind: 'fund',
+    monthKey: '2026-08',
+    amount: 600,
+    budget: 600,
+    allocations: { trip: 60 },
+    allocatedAmount: 60,
+    reserveAmount: 540,
+    ownerId: memberId,
+    updatedBy: memberId,
+  }))
+  await assertFails(setDoc(doc(memberDb, 'households', householdId, 'wishes', 'invalid-fund'), {
+    kind: 'fund',
+    monthKey: '2026-08',
+    amount: 600,
+    budget: 600,
+    allocations: { trip: 700 },
+    allocatedAmount: 700,
+    reserveAmount: 0,
+    ownerId: memberId,
+    updatedBy: memberId,
+  }))
   await assertSucceeds(getDoc(memberChildNeedReference))
   await assertSucceeds(updateDoc(memberChildNeedReference, { completed: true }))
   await assertFails(updateDoc(memberChildNeedReference, { addedBy: memberId }))

@@ -589,6 +589,8 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   scroll-padding-top: 70px;
 }
 

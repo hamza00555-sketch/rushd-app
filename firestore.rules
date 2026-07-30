@@ -127,6 +127,43 @@ service cloud.firestore {
         && request.resource.data.amount > 0;
     }
 
+    function validWishNeedPercent() {
+      return request.resource.data.needPercent is number
+        && request.resource.data.needPercent in [1, 2, 3, 5, 10];
+    }
+
+    function validSharedWish() {
+      return request.resource.data.kind == 'wish'
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.target is number
+        && request.resource.data.target > 0
+        && request.resource.data.saved is number
+        && request.resource.data.saved >= 0
+        && request.resource.data.deadline is string
+        && request.resource.data.ownerId is string
+        && request.resource.data.ownerId.size() > 0
+        && validWishNeedPercent();
+    }
+
+    function validWishesFund() {
+      return request.resource.data.kind == 'fund'
+        && request.resource.data.monthKey is string
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.budget == request.resource.data.amount
+        && request.resource.data.allocations is map
+        && request.resource.data.allocatedAmount is number
+        && request.resource.data.allocatedAmount >= 0
+        && request.resource.data.allocatedAmount <= request.resource.data.amount
+        && request.resource.data.reserveAmount is number
+        && request.resource.data.reserveAmount >= 0
+        && request.resource.data.reserveAmount <= request.resource.data.amount
+        && request.resource.data.ownerId is string
+        && request.resource.data.ownerId.size() > 0
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
     function validChildNeed() {
       return request.resource.data.title is string
         && request.resource.data.title.size() > 0
@@ -215,9 +252,11 @@ service cloud.firestore {
       match /wishes/{wishId} {
         allow read: if canViewModule(householdId, 'wishes');
         allow create: if canEditModule(householdId, 'wishes')
-          && request.resource.data.ownerId == request.auth.uid;
+          && request.resource.data.ownerId == request.auth.uid
+          && (validSharedWish() || validWishesFund());
         allow update: if canEditModule(householdId, 'wishes')
-          && request.resource.data.ownerId == resource.data.ownerId;
+          && request.resource.data.ownerId == resource.data.ownerId
+          && (validSharedWish() || validWishesFund());
         allow delete: if canEditModule(householdId, 'wishes');
       }
 

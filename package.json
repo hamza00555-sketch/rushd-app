@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test:market-cycle": "node --import tsx scripts/market-cycle-test.ts",
     "test:ratibi": "node --import tsx scripts/ratibi-import-test.ts",
+    "test:wishes-fund": "node --import tsx scripts/wishes-fund-test.ts",
     "test:rules": "npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project demo-rushd \"node scripts/firestore-rules-test.mjs\"",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
