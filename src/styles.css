@@ -151,6 +151,7 @@ p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
   .launch-tools-backdrop,
   .privacy-backdrop,
   .wish-details-backdrop,
+  .market-delete-backdrop,
   .household-overlay,
   .promotion-overlay,
   .wealth-overlay,

@@ -35,7 +35,7 @@ import {
 } from './household'
 import { auth, authPersistenceReady, db } from './firebase'
 import { ARABIC_GREGORIAN_LOCALE } from './locale'
-import { normalizeMarketCycleStartDay } from './marketCycle'
+import { normalizeMarketCycleStartDay, resolveMarketRollingBudget } from './marketCycle'
 import {
   appendWishFundContribution,
   distributeWishesFund,
@@ -72,6 +72,10 @@ export type SharedWishesBudget = {
 export type SharedMarketBudget = {
   monthKey: string
   amount: number
+  monthlyAmount: number
+  carryoverAmount: number
+  sourceMonthKey: string
+  inherited: boolean
   updatedByName: string
   updatedAtLabel: string
 }
@@ -423,7 +427,7 @@ export const loadSharedWorkspaceData = async (
   const canViewWishes = permissions.wishes === 'view' || permissions.wishes === 'edit'
   const canViewChildren = permissions.noor === 'view' || permissions.noor === 'edit'
   const [marketSnapshot, wishesSnapshot, childNeedsSnapshot] = await Promise.all([
-    canViewMarket ? getDocs(query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey))) : null,
+    canViewMarket ? getDocs(query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '<=', marketMonthKey))) : null,
     canViewWishes ? getDocs(query(collection(db, 'households', householdId, 'wishes'), orderBy('createdAt', 'asc'))) : null,
     canViewChildren ? getDocs(query(collection(db, 'households', householdId, 'childrenNeeds'), orderBy('createdAt', 'asc'))) : null,
   ])
@@ -473,11 +477,29 @@ export const loadSharedWorkspaceData = async (
     ? wishesBudgetData.allocations as Record<string, unknown>
     : {}
   const marketDocuments = marketSnapshot?.docs ?? []
-  const marketBudgetDocument = marketDocuments.find((snapshot) => {
-    const data = snapshot.data()
-    return data.kind === 'budget' && data.monthKey === marketMonthKey
-  })
-  const marketBudgetData = marketBudgetDocument?.data()
+  const marketBudget = resolveMarketRollingBudget(
+    marketMonthKey,
+    marketDocuments
+      .filter((snapshot) => snapshot.data().kind === 'budget')
+      .map((snapshot) => {
+        const data = snapshot.data()
+        return {
+          monthKey: String(data.monthKey || ''),
+          amount: Number(data.budget || 0),
+          updatedByName: String(data.updatedByName || data.addedByName || 'رب الأسرة'),
+          updatedAtLabel: formatActivityTime(data.updatedAt || data.createdAt),
+        }
+      }),
+    marketDocuments
+      .filter((snapshot) => snapshot.data().kind === 'expense')
+      .map((snapshot) => {
+        const data = snapshot.data()
+        return {
+          monthKey: String(data.monthKey || ''),
+          amount: Number(data.amount || 0),
+        }
+      }),
+  )
   const marketExpenses = marketDocuments
     .filter((snapshot) => {
       const data = snapshot.data()
@@ -524,12 +546,7 @@ export const loadSharedWorkspaceData = async (
       updatedAtLabel: formatActivityTime(wishesBudgetData.updatedAt || wishesBudgetData.createdAt),
     } : null,
     wishesReserveBalance,
-    marketBudget: marketBudgetData && Number(marketBudgetData.budget) > 0 ? {
-      monthKey: marketMonthKey,
-      amount: Number(marketBudgetData.budget),
-      updatedByName: String(marketBudgetData.updatedByName || marketBudgetData.addedByName || 'رب الأسرة'),
-      updatedAtLabel: formatActivityTime(marketBudgetData.updatedAt || marketBudgetData.createdAt),
-    } : null,
+    marketBudget,
     marketExpenses,
     childNeeds: (childNeedsSnapshot?.docs ?? []).map((snapshot) => {
       const need = snapshot.data()
@@ -705,6 +722,34 @@ export const addSharedMarketExpense = async (
     updatedAt: serverTimestamp(),
   })
   await insertActivity(householdId, user, 'خصم من ميزانية السوبرماركت', `${amount} ريال · ${title}`)
+}
+
+export const deleteSharedMarketExpense = async (
+  householdId: string,
+  user: User,
+  expenseId: string,
+) => {
+  const reference = doc(db, 'households', householdId, 'marketItems', expenseId)
+  const snapshot = await getDoc(reference)
+  if (!snapshot.exists() || snapshot.data().kind !== 'expense') {
+    throw new Error('هذه الفاتورة غير موجودة أو حُذفت مسبقًا.')
+  }
+
+  const data = snapshot.data()
+  const amount = Math.max(0, Number(data.amount || 0))
+  const title = String(data.title || 'مشتريات سوبرماركت')
+  const activityReference = doc(collection(db, 'households', householdId, 'activity'))
+  const batch = writeBatch(db)
+  batch.delete(reference)
+  batch.set(activityReference, {
+    actorId: user.uid,
+    actorName: getUserName(user),
+    action: 'حذف فاتورة من السوبرماركت',
+    detail: `${amount} ريال · ${title}`,
+    createdAt: serverTimestamp(),
+  })
+  await batch.commit()
+  return amount
 }
 
 export const addSharedWish = async (
@@ -941,7 +986,7 @@ export const subscribeToSharedData = (
   ]
   if (permissions.market !== 'none') {
     unsubscribers.push(onSnapshot(
-      query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '==', marketMonthKey)),
+      query(collection(db, 'households', householdId, 'marketItems'), where('monthKey', '<=', marketMonthKey)),
       afterInitialSnapshot(),
       onError,
     ))

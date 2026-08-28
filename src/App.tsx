@@ -59,7 +59,7 @@ const tabMessages: Record<Tab, string> = {
   month: 'اربط راتبي مرة واحدة، وبعدها تصل تحديثاتك هنا تلقائيًا.',
   wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
   children: 'احتياجات الأبناء مشتركة مع البيت وتظهر حسب صلاحيتك.',
-  market: 'كل مشتريات السوبرماركت تنخصم فورًا، والمتبقي واضح لكل شخص عنده صلاحية.',
+  market: 'المتبقي من السوبرماركت يترحّل للشهر التالي، وكل مشتريات البيت تنخصم فورًا.',
 }
 
 const tabNavigation: Record<Tab, { label: string; icon: IconName }> = {
@@ -896,6 +896,7 @@ function MarketView({
   expenses,
   onSaveBudget,
   onAddExpense,
+  onDeleteExpense,
   cycleStartDay,
   onSaveCycleStartDay,
   canManageBudget,
@@ -909,6 +910,7 @@ function MarketView({
   expenses: SharedMarketExpense[]
   onSaveBudget: (amount: number) => Promise<void>
   onAddExpense: (amount: number, title: string) => Promise<void>
+  onDeleteExpense: (expenseId: string) => Promise<void>
   cycleStartDay: number
   onSaveCycleStartDay: (startDay: number) => Promise<void>
   canManageBudget: boolean
@@ -926,7 +928,7 @@ function MarketView({
     [cycleStartDay, monthKey],
   )
   const [budgetFormOpen, setBudgetFormOpen] = useState(canManageBudget && !budget)
-  const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.amount) : '')
+  const [budgetDraft, setBudgetDraft] = useState(budget ? String(budget.monthlyAmount) : '')
   const [cycleStartDayDraft, setCycleStartDayDraft] = useState(cycleStartDay)
   const [expenseAmount, setExpenseAmount] = useState('')
   const [expenseTitle, setExpenseTitle] = useState('')
@@ -935,13 +937,21 @@ function MarketView({
   const [budgetError, setBudgetError] = useState('')
   const [cycleError, setCycleError] = useState('')
   const [expenseError, setExpenseError] = useState('')
+  const [selectedExpense, setSelectedExpense] = useState<SharedMarketExpense | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const deleteDialogRef = useDialog<HTMLElement>(() => {
+    if (!deleteBusy) setSelectedExpense(null)
+  }, Boolean(selectedExpense))
 
   useEffect(() => {
-    setBudgetDraft(budget ? String(budget.amount) : '')
+    setBudgetDraft(budget ? String(budget.monthlyAmount) : '')
     setBudgetFormOpen(canManageBudget && !budget)
     setBudgetError('')
     setExpenseError('')
-  }, [budget?.amount, canManageBudget, monthKey])
+    setSelectedExpense(null)
+    setDeleteError('')
+  }, [budget?.monthlyAmount, canManageBudget, monthKey])
 
   useEffect(() => {
     setCycleStartDayDraft(cycleStartDay)
@@ -1008,6 +1018,20 @@ function MarketView({
     }
   }
 
+  const deleteExpense = async () => {
+    if (!selectedExpense) return
+    setDeleteBusy(true)
+    setDeleteError('')
+    try {
+      await onDeleteExpense(selectedExpense.id)
+      setSelectedExpense(null)
+    } catch (cause: unknown) {
+      setDeleteError(cause instanceof Error ? cause.message : 'تعذر حذف الفاتورة وإرجاع مبلغها.')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
+
   return (
     <motion.main className="screen-content" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
       <section className={`market-budget-hero ${remaining < 0 ? 'is-over' : ''}`}>
@@ -1024,7 +1048,7 @@ function MarketView({
         <span className="market-scene-fade" aria-hidden="true" />
         <div className="market-month-row">
           <div><span>ميزانية السوبرماركت</span><small>{cycle.label}</small></div>
-          <input type="month" lang="ar" dir="rtl" value={monthKey} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="اختيار دورة السوبرماركت حسب شهر البداية" />
+          <input type="month" lang="ar" dir="rtl" value={monthKey} max={getActiveMarketCycleKey(cycleStartDay)} onChange={(event) => event.target.value && setMonthKey(event.target.value)} aria-label="اختيار دورة السوبرماركت حسب شهر البداية" />
         </div>
         {access !== 'none' && (
           <div className={`market-cycle-countdown ${cycle.isCurrent ? '' : 'is-archive'}`}>
@@ -1041,21 +1065,19 @@ function MarketView({
           <><h1>هذه الميزانية خاصة</h1><p>مالك البيت يقدر يمنحك صلاحية العرض أو التعديل.</p></>
         ) : !budget ? (
           canManageBudget
-            ? <><h1>حدّد ميزانية الشهر</h1><p>اختر المبلغ المتاح للسوبرماركت، وبعدها كل مشتريات العائلة تنخصم منه مباشرة.</p></>
-            : <><h1>بانتظار ميزانية رب الأسرة</h1><p>أول ما يحددها ستظهر لك هنا تلقائيًا، وبعدها تقدرين تسجلين المشتريات.</p></>
+            ? <><h1>حدّد المبلغ الشهري</h1><p>تحدده مرة واحدة؛ يتكرر كل شهر ويُضاف إليه أي رصيد متبقٍ من الشهر السابق.</p></>
+            : <><h1>بانتظار ميزانية رب الأسرة</h1><p>أول ما يحدد المبلغ الشهري سيستمر تلقائيًا، ويظهر الرصيد المرحّل لكل أفراد البيت.</p></>
         ) : (
           <>
-            <span className="market-balance-label">{remaining >= 0 ? 'المتبقي في هذه الدورة' : 'تجاوزتم الميزانية بـ'}</span>
+            <span className="market-balance-label">{remaining >= 0 ? 'الرصيد المتاح في هذه الدورة' : 'تجاوزتم الرصيد بـ'}</span>
             <strong className="market-balance">{formatMarketSar(Math.abs(remaining))} <small>ريال</small></strong>
             <div className="market-budget-progress" aria-label={`استخدمتم ${progress}% من ميزانية السوبرماركت`}><motion.i initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: .65 }} /></div>
-            <div className="market-budget-stats">
-              <div><span>ميزانية الدورة</span><b>{formatMarketSar(budgetAmount)} ريال</b></div>
-              <div><span>المصروف حتى الآن</span><b>{formatMarketSar(spent)} ريال</b></div>
-            </div>
             <small className="market-budget-source">
-              {canManageBudget
-                ? `آخر تعديل بواسطة ${budget.updatedByName} · ${budget.updatedAtLabel}`
-                : `حددها ${budget.updatedByName} · ${budget.updatedAtLabel} · وتتحدث عندك تلقائيًا`}
+              {budget.inherited
+                ? `استمر مبلغ ${formatMonthLabel(budget.sourceMonthKey)} تلقائيًا · والمتبقي ترحّل بدون تصفير`
+                : canManageBudget
+                  ? `آخر تعديل بواسطة ${budget.updatedByName} · ${budget.updatedAtLabel}`
+                  : `حددها ${budget.updatedByName} · ${budget.updatedAtLabel} · وتتحدث عندك تلقائيًا`}
             </small>
           </>
         )}
@@ -1097,17 +1119,17 @@ function MarketView({
           {canManageBudget && budgetFormOpen && (
             <form className="shared-entry-form market-budget-form" onSubmit={submitBudget}>
               <div className="shared-form-heading">
-                <div><strong>{budget ? 'تعديل ميزانية الدورة' : 'ميزانية الدورة'}</strong><small>المبلغ المتاح للسوبرماركت فقط</small></div>
+                <div><strong>{budget ? 'تعديل المبلغ الشهري' : 'المبلغ الشهري'}</strong><small>يتكرر تلقائيًا، والمتبقي من كل شهر يُضاف للشهر التالي</small></div>
                 {budget && <button type="button" onClick={() => setBudgetFormOpen(false)} aria-label="إلغاء تعديل الميزانية">×</button>}
               </div>
-              <label className="market-form-label"><span>الميزانية بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 1500" aria-label="ميزانية السوبرماركت الشهرية" /></label>
+              <label className="market-form-label"><span>المبلغ المتكرر بالريال</span><input data-autofocus inputMode="decimal" value={budgetDraft} onChange={(event) => setBudgetDraft(event.target.value)} placeholder="مثلاً 1500" aria-label="ميزانية السوبرماركت الشهرية المتكررة" /></label>
               {budgetError && <div className="inline-form-error" role="alert">{budgetError}</div>}
-              <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : budget ? 'حفظ الميزانية الجديدة' : 'اعتماد ميزانية الدورة'}</button>
+              <button type="submit" disabled={busy}>{busy ? 'جاري الحفظ…' : budget ? 'حفظ المبلغ الشهري' : 'اعتماد المبلغ الشهري'}</button>
             </form>
           )}
 
           {budget && canManageBudget && !budgetFormOpen && (
-            <button type="button" className="secondary-button market-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل ميزانية الدورة</button>
+            <button type="button" className="secondary-button market-edit-budget" onClick={() => setBudgetFormOpen(true)}>تعديل المبلغ الشهري</button>
           )}
 
           {budget && access === 'edit' && (
@@ -1128,7 +1150,14 @@ function MarketView({
                 <motion.article className="market-expense-row" key={expense.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }}>
                   <span aria-hidden="true"><Icon name="cart" size={19} /></span>
                   <div><strong>{expense.title}</strong><small>{expense.owner} · {expense.dateLabel}</small></div>
-                  <b>−{formatMarketSar(expense.amount)}</b>
+                  <div className="market-expense-actions">
+                    <b>−{formatMarketSar(expense.amount)}</b>
+                    {access === 'edit' && (
+                      <button type="button" onClick={() => { setSelectedExpense(expense); setDeleteError('') }} aria-label={`حذف فاتورة ${expense.title} وإرجاع ${formatMarketSar(expense.amount)} ريال للميزانية`}>
+                        <Icon name="close" size={15} />
+                      </button>
+                    )}
+                  </div>
                 </motion.article>
               ))}
             </section>
@@ -1136,6 +1165,23 @@ function MarketView({
 
           {access === 'view' && <div className="view-only-note">صلاحيتك الحالية: عرض الميزانية فقط</div>}
         </>
+      )}
+      {selectedExpense && (
+        <div className="market-delete-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !deleteBusy) setSelectedExpense(null)
+        }}>
+          <section ref={deleteDialogRef} className="market-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="market-delete-title" tabIndex={-1}>
+            <span aria-hidden="true"><Icon name="receipt" size={23} /></span>
+            <small>إلغاء خصم</small>
+            <h2 id="market-delete-title">تحذف فاتورة «{selectedExpense.title}»؟</h2>
+            <p>سيُلغى الخصم ويرجع <strong>{formatMarketSar(selectedExpense.amount)} ريال</strong> مباشرة إلى رصيد السوبرماركت.</p>
+            {deleteError && <div className="inline-form-error" role="alert">{deleteError}</div>}
+            <div>
+              <button type="button" onClick={() => setSelectedExpense(null)} disabled={deleteBusy}>تراجع</button>
+              <button type="button" data-autofocus onClick={() => void deleteExpense()} disabled={deleteBusy}>{deleteBusy ? 'جاري الإرجاع…' : 'حذف وإرجاع المبلغ'}</button>
+            </div>
+          </section>
+        </div>
       )}
       <section className={`shared-status sync-${syncStatus}`}><span className="live-dot"/><div><strong>{sync.title}</strong><p>{sync.body}</p></div></section>
     </motion.main>
@@ -1263,7 +1309,7 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
 
   const saveMarketBudget = async (amount: number) => {
     await shared.saveMarketBudget(amount)
-    setMessage(`تم اعتماد ميزانية السوبرماركت: ${formatMarketSar(amount)} ريال.`)
+    setMessage(`تم اعتماد ${formatMarketSar(amount)} ريال شهريًا للسوبرماركت، وأي متبقٍ سيترحّل تلقائيًا.`)
   }
 
   const saveMarketCycleStartDay = async (startDay: number) => {
@@ -1278,6 +1324,11 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
     setMessage(projectedRemaining < 0
       ? `تنبيه: تجاوزتم ميزانية السوبرماركت بـ ${formatMarketSar(Math.abs(projectedRemaining))} ريال.`
       : `تم الخصم. باقي ${formatMarketSar(projectedRemaining)} ريال من ميزانية السوبرماركت.`)
+  }
+
+  const deleteMarketExpense = async (expenseId: string) => {
+    const returnedAmount = await shared.deleteMarketExpense(expenseId)
+    setMessage(`حُذفت الفاتورة ورجع ${formatMarketSar(returnedAmount)} ريال إلى رصيد السوبرماركت.`)
   }
 
   const pressCharacter = () => {
@@ -1371,6 +1422,7 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
               expenses={marketExpenses}
               onSaveBudget={saveMarketBudget}
               onAddExpense={addMarketExpense}
+              onDeleteExpense={deleteMarketExpense}
               cycleStartDay={shared.marketCycleStartDay}
               onSaveCycleStartDay={saveMarketCycleStartDay}
               canManageBudget={shared.isHouseholdOwner}

@@ -6,12 +6,16 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
 import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 
 const projectId = 'demo-rushd'
@@ -226,6 +230,7 @@ try {
 
   const memberMarketBudgetReference = doc(memberDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
   const memberMarketExpenseReference = doc(memberDb, 'households', householdId, 'marketItems', 'expense-one')
+  const memberCreatedExpenseReference = doc(memberDb, 'households', householdId, 'marketItems', 'member-expense')
   const ownerMarketBudgetReference = doc(ownerDb, 'households', householdId, 'marketItems', 'market-budget-2026-07')
   const memberWishesBudgetReference = doc(memberDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
   const ownerWishesBudgetReference = doc(ownerDb, 'households', householdId, 'wishes', `wishes-budget-${monthKey}`)
@@ -233,6 +238,10 @@ try {
   const memberChildNeedReference = doc(memberDb, 'households', householdId, 'childrenNeeds', 'school-shoes')
   await assertSucceeds(getDoc(memberMarketBudgetReference))
   await assertSucceeds(getDoc(memberMarketExpenseReference))
+  await assertSucceeds(getDocs(query(
+    collection(memberDb, 'households', householdId, 'marketItems'),
+    where('monthKey', '<=', '2026-08'),
+  )))
   await assertFails(updateDoc(memberMarketBudgetReference, { budget: 1400.25 }))
   await assertFails(updateDoc(memberMarketBudgetReference, { addedBy: memberId }))
   await assertSucceeds(updateDoc(ownerMarketBudgetReference, { budget: 1400.25 }))
@@ -255,13 +264,14 @@ try {
     amount: 99,
     addedBy: ownerId,
   }))
-  await assertSucceeds(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'member-expense'), {
+  await assertSucceeds(setDoc(memberCreatedExpenseReference, {
     kind: 'expense',
     monthKey,
     title: 'Member groceries',
     amount: 85.25,
     addedBy: memberId,
   }))
+  await assertSucceeds(deleteDoc(memberCreatedExpenseReference))
   const sharedWishesBudget = await assertSucceeds(getDoc(memberWishesBudgetReference))
   assert.equal(sharedWishesBudget.data()?.budget, 500)
   await assertFails(updateDoc(memberWishesBudgetReference, { budget: 700 }))
@@ -351,6 +361,7 @@ try {
   }))
   await assertSucceeds(getDoc(memberMarketBudgetReference))
   await assertSucceeds(getDoc(memberChildNeedReference))
+  await assertFails(deleteDoc(memberMarketExpenseReference))
   await assertFails(updateDoc(memberChildNeedReference, { completed: false }))
   await assertFails(setDoc(doc(memberDb, 'households', householdId, 'marketItems', 'view-only-expense'), {
     kind: 'expense',
@@ -365,6 +376,10 @@ try {
   }))
   await assertFails(getDoc(memberMarketBudgetReference))
   await assertFails(getDoc(memberMarketExpenseReference))
+  await assertFails(getDocs(query(
+    collection(memberDb, 'households', householdId, 'marketItems'),
+    where('monthKey', '<=', '2026-08'),
+  )))
   await assertFails(getDoc(memberChildNeedReference))
   await assertFails(getDoc(doc(memberDb, 'users', ownerId, 'investmentAccounts', 'private-account')))
 

@@ -4,6 +4,7 @@ import {
   addSharedChildNeed,
   addSharedMarketExpense,
   addSharedWish,
+  deleteSharedMarketExpense,
   loadSharedWorkspaceData,
   resetSharedWishSavings,
   saveSharedMarketBudget,
@@ -211,6 +212,15 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     scheduleRefresh()
   }, [marketBudget, marketMonthKey, scheduleRefresh, user])
 
+  const deleteMarketExpense = useCallback(async (expenseId: string) => {
+    const householdId = householdIdRef.current
+    if (!householdId) throw new Error('مساحة العائلة ما زالت قيد التحميل.')
+    if (permissionsRef.current.market !== 'edit') throw new Error('صلاحيتك في السوبرماركت للعرض فقط.')
+    const returnedAmount = await deleteSharedMarketExpense(householdId, user, expenseId)
+    scheduleRefresh()
+    return returnedAmount
+  }, [scheduleRefresh, user])
+
   const addWish = useCallback(async (input: {
     title: string
     icon: string
@@ -281,6 +291,7 @@ export function useSharedModules(user: User, marketMonthKey: string, wishesMonth
     saveMarketCycleStartDay,
     saveWishesBudget,
     addMarketExpense,
+    deleteMarketExpense,
     addWish,
     updateWishFundingLevel,
     resetWishSavings,
