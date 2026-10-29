@@ -45,29 +45,22 @@ import {
   type WishFundingLevel,
 } from './lib/wishesFund'
 
-type Tab = 'home' | 'month' | 'wishes' | 'children' | 'market'
+type Tab = 'market' | 'wishes'
 
 type AppProps = {
   user: User
   displayName: string
   onLogout: () => Promise<void>
-  onHouseholdRoleChange?: (role: 'owner' | 'member' | null) => void
 }
 
 const tabMessages: Record<Tab, string> = {
-  home: 'هذه قراءة شهرِك الحالي، وكل رقم هنا محفوظ في حسابك الخاص.',
-  month: 'اربط راتبي مرة واحدة، وبعدها تصل تحديثاتك هنا تلقائيًا.',
-  wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
-  children: 'احتياجات الأبناء مشتركة مع البيت وتظهر حسب صلاحيتك.',
   market: 'المتبقي من السوبرماركت يترحّل للشهر التالي، وكل مشتريات البيت تنخصم فورًا.',
+  wishes: 'كل أمنية مشتركة هنا مرتبطة بالبيت، مو بحسابك المالي الخاص.',
 }
 
 const tabNavigation: Record<Tab, { label: string; icon: IconName }> = {
-  home: { label: 'الرئيسية', icon: 'home' },
-  month: { label: 'حساب الشهر', icon: 'month' },
-  wishes: { label: 'الأماني', icon: 'heart' },
-  children: { label: 'الأبناء', icon: 'users' },
   market: { label: 'السوبرماركت', icon: 'cart' },
+  wishes: { label: 'الأماني', icon: 'heart' },
 }
 
 const RATIBI_APP_URL = import.meta.env.VITE_RATIBI_APP_URL || 'https://ratebi-salary-app2.vercel.app'
@@ -1195,7 +1188,7 @@ function MemberAccessEmptyView({ syncError }: { syncError: string }) {
         <span><Icon name="users" size={28} /></span>
         <small>حساب عائلي</small>
         <h1>أنت داخل البيت، لكن ما عندك وحدة مفعّلة حتى الآن.</h1>
-        <p>اطلب من رب الأسرة تفعيل الأماني أو السوبرماركت أو احتياجات الأبناء. التغيير سيظهر هنا مباشرة بدون تسجيل خروج أو ربط راتبي.</p>
+        <p>اطلب من رب الأسرة تفعيل السوبرماركت أو الأماني. التغيير سيظهر هنا مباشرة بدون تسجيل خروج.</p>
       </section>
       {syncError && <div className="app-inline-alert" role="alert">{syncError}</div>}
       <section className="shared-status sync-synced"><span className="live-dot"/><div><strong>ننتظر الصلاحيات</strong><p>اتصال البيت شغّال، وأول تعديل من المالك سيظهر تلقائيًا.</p></div></section>
@@ -1203,27 +1196,23 @@ function MemberAccessEmptyView({ syncError }: { syncError: string }) {
   )
 }
 
-export default function App({ user, displayName, onLogout, onHouseholdRoleChange }: AppProps) {
-  const [tab, setTab] = useState<Tab>('home')
-  const [monthKey, setMonthKey] = useState(getCurrentMonthKey())
+export default function App({ user, displayName, onLogout }: AppProps) {
+  const [tab, setTab] = useState<Tab>('market')
   const [wishesMonthKey, setWishesMonthKey] = useState(getCurrentMonthKey())
   const [marketMonthKey, setMarketMonthKey] = useState(getCurrentMonthKey())
-  const [message, setMessage] = useState(tabMessages.home)
+  const [message, setMessage] = useState(tabMessages.market)
   const [counter, setCounter] = useState(0)
-  const monthly = useMonthlyPlan(user, monthKey)
   const shared = useSharedModules(user, marketMonthKey, wishesMonthKey)
-  const plan = monthly.plan
   const memberMode = shared.status === 'synced' && !shared.isHouseholdOwner
   const memberTabs = useMemo<Tab[]>(() => {
     const tabs: Tab[] = []
-    if (shared.permissions.wishes !== 'none') tabs.push('wishes')
-    if (shared.permissions.noor !== 'none') tabs.push('children')
     if (shared.permissions.market !== 'none') tabs.push('market')
+    if (shared.permissions.wishes !== 'none') tabs.push('wishes')
     return tabs
-  }, [shared.permissions.market, shared.permissions.noor, shared.permissions.wishes])
-  const navigationTabs = memberMode ? memberTabs : (['home', 'month', 'wishes', 'children', 'market'] as Tab[])
+  }, [shared.permissions.market, shared.permissions.wishes])
+  const navigationTabs = memberMode ? memberTabs : (['market', 'wishes'] as Tab[])
 
-  const mood = useMemo(() => tab === 'month' || tab === 'market' ? 'thinking' : tab === 'wishes' || tab === 'children' ? 'happy' : 'calm', [tab])
+  const mood = useMemo(() => tab === 'market' ? 'thinking' : 'happy', [tab])
   const marketDataIsCurrent = shared.marketBudget?.monthKey === marketMonthKey
   const wishesBudget = shared.wishesBudget?.monthKey === wishesMonthKey ? shared.wishesBudget : null
   const marketExpenses = marketDataIsCurrent ? shared.marketExpenses : []
@@ -1232,16 +1221,6 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
   const marketRemaining = marketBudget ? marketBudget.amount - marketSpent : null
   const safeName = displayName.trim() || user.displayName?.trim() || user.email?.split('@')[0] || 'عضو رُشد'
   const initial = Array.from(safeName)[0] || 'ر'
-
-  useEffect(() => {
-    if (shared.status === 'connecting') {
-      onHouseholdRoleChange?.(null)
-      return
-    }
-    if (shared.status === 'synced') {
-      onHouseholdRoleChange?.(shared.isHouseholdOwner ? 'owner' : 'member')
-    }
-  }, [onHouseholdRoleChange, shared.isHouseholdOwner, shared.status])
 
   useEffect(() => {
     setMarketMonthKey(getActiveMarketCycleKey(shared.marketCycleStartDay))
@@ -1257,12 +1236,6 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
   const changeTab = (next: Tab) => {
     setTab(next)
     setMessage(tabMessages[next])
-  }
-
-  const importFromRatibi = async (bundle: RatibiFinanceBundleV1) => {
-    await monthly.importFromRatibi(bundle)
-    if (bundle.month !== monthKey) setMonthKey(bundle.month)
-    setMessage(`وصلت بيانات ${formatMonthLabel(bundle.month)} من راتبي ورتّبتها لك.`)
   }
 
   const addWish = async (input: {
@@ -1297,16 +1270,6 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
     return returnedAmount
   }
 
-  const addChildNeed = async (input: { title: string; childName: string; estimatedCost: number }) => {
-    await shared.addChildNeed(input)
-    setMessage('تمت إضافة الاحتياج وظهر لكل شخص عنده صلاحية.')
-  }
-
-  const toggleChildNeed = async (needId: string, completed: boolean) => {
-    await shared.toggleChildNeed(needId, completed)
-    setMessage(completed ? 'تم تحديد الاحتياج كمكتمل.' : 'رجّعنا الاحتياج إلى القائمة.')
-  }
-
   const saveMarketBudget = async (amount: number) => {
     await shared.saveMarketBudget(amount)
     setMessage(`تم اعتماد ${formatMarketSar(amount)} ريال شهريًا للسوبرماركت، وأي متبقٍ سيترحّل تلقائيًا.`)
@@ -1332,27 +1295,17 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
   }
 
   const pressCharacter = () => {
-    if (memberMode) {
-      const messages = [
-        'ما تحتاج تربط حسابك براتبي؛ وحدات العائلة توصلك مباشرة.',
-        'أي تعديل في الصلاحيات أو ميزانية السوبرماركت يظهر عندك لحظيًا.',
-        'راتب رب الأسرة وبياناته الخاصة ما تظهر لأي عضو.',
-      ]
-      const next = counter + 1
-      setCounter(next)
-      setMessage(messages[next % messages.length])
-      return
-    }
-    if (!plan) {
-      setMessage('اربط حساب راتبي مرة واحدة، وبعدها تصل تحديثات الشهر تلقائيًا.')
-      return
-    }
-    const snapshot = getFinancialSnapshot(plan.salary, plan.categories)
-    const messages = [
-      `باقي معك ${formatSar(snapshot.remaining)} ريال من راتب هذا الشهر.`,
-      snapshot.watch ? `عندك ${snapshot.watch} فئات تحتاج متابعة.` : 'كل ميزانياتك حاليًا في النطاق الآمن.',
-      'بيانات البيت مشتركة حسب الصلاحيات، وحسابك المالي الخاص لا يشاركه أحد.',
-    ]
+    const messages = tab === 'market'
+      ? [
+          'أي مبلغ ما انصرف من السوبرماركت يكمّل معكم للشهر التالي.',
+          'إذا حذفت فاتورة بالغلط، يرجع مبلغها للرصيد مباشرة.',
+          'أي تعديل في السوبرماركت يظهر لأعضاء البيت لحظيًا.',
+        ]
+      : [
+          'الأمنية المعلّقة تحفظ رصيدها لين ترجعون تكملونها.',
+          'الأولوية تغيّر الدفعات القادمة فقط، وما تمس المبالغ السابقة.',
+          'كل أمنية مشتركة تظهر لأعضاء البيت حسب صلاحياتهم.',
+        ]
     const next = counter + 1
     setCounter(next)
     setMessage(messages[next % messages.length])
@@ -1360,14 +1313,6 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
 
   if (shared.status === 'connecting') {
     return <main className="system-screen"><span className="live-dot"/><h1>جاري ربطك بمساحة البيت…</h1><p>نتحقق من الدعوات وآخر الصلاحيات.</p></main>
-  }
-
-  if (!memberMode && monthly.status === 'loading') {
-    return <main className="system-screen"><span className="live-dot"/><h1>جاري تحميل حسابك…</h1><p>لحظة ونجيب آخر نسخة محفوظة من شهرِك.</p></main>
-  }
-
-  if (!memberMode && monthly.status === 'error') {
-    return <main className="system-screen" role="alert"><div className="system-mark">!</div><h1>تعذر فتح حساب الشهر.</h1><p>{monthly.error}</p><button type="button" onClick={() => window.location.reload()}>إعادة المحاولة</button><button type="button" className="system-link-button" onClick={() => void onLogout()}>تسجيل الخروج</button></main>
   }
 
   return (
@@ -1379,19 +1324,11 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
           <button type="button" className="header-signout" onClick={() => void onLogout()} aria-label="تسجيل الخروج"><Icon name="logout" size={16} /><span>خروج</span></button>
         </header>
         <div className="character-dock"><RushdCharacter mood={mood} size="sm" message={message} interactive onPress={pressCharacter}/></div>
-        {(shared.error || (!memberMode && monthly.error)) && <div className="app-inline-alert" role="alert">{shared.error || monthly.error}</div>}
+        {shared.error && <div className="app-inline-alert" role="alert">{shared.error}</div>}
         {memberMode && memberTabs.length === 0 ? (
           <MemberAccessEmptyView syncError={shared.error} />
         ) : (
           <AnimatePresence mode="wait">
-          {!memberMode && tab === 'home' && (
-            plan
-              ? <HomeView key="home" salary={plan.salary} categories={plan.categories} wishes={shared.wishes} marketRemaining={marketRemaining} onOpenMonth={() => changeTab('month')}/>
-              : <EmptyHomeView key="home-empty" onOpenMonth={() => changeTab('month')} />
-          )}
-          {!memberMode && tab === 'month' && (
-            <MonthView key="month" plan={plan} onImport={importFromRatibi} saving={monthly.saving} ratibiSync={monthly.ratibiSync}/>
-          )}
           {tab === 'wishes' && (
             <WishesView
               key="wishes"
@@ -1409,9 +1346,6 @@ export default function App({ user, displayName, onLogout, onHouseholdRoleChange
               syncStatus={shared.status}
               syncError={shared.error}
             />
-          )}
-          {tab === 'children' && (
-            <ChildrenNeedsView key="children" needs={shared.childNeeds} access={shared.permissions.noor} onAdd={addChildNeed} onToggle={toggleChildNeed} syncStatus={shared.status} syncError={shared.error}/>
           )}
           {tab === 'market' && (
             <MarketView
